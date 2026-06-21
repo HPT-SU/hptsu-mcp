@@ -194,20 +194,28 @@ class HptSuClient:
         return await self._get("/nsi/vehicle-models/", params=filters, token=token)
 
     async def list_test_labs(self, **filters: Any) -> dict[str, Any]:
-        """Accredited testing laboratories — `GET /nsi/test-labs/` (planned)."""
+        """Accredited testing laboratories — `GET /nsi/test-labs/`.
+
+        AccreditedPerson kind=TEST_LAB. Filters: ``name`` (icontains
+        по name_short/name_full/name_en), ``status``, ``country_code``.
+        """
         token = filters.pop("token", None)
         return await self._get("/nsi/test-labs/", params=filters, token=token)
 
     async def list_certification_bodies(self, **filters: Any) -> dict[str, Any]:
-        """Certification bodies — `GET /nsi/certification-bodies/` (planned)."""
+        """Certification bodies — `GET /nsi/certification-bodies/`.
+
+        AccreditedPerson kind=CERT_BODY. Same filters as ``list_test_labs``.
+        """
         token = filters.pop("token", None)
         return await self._get("/nsi/certification-bodies/", params=filters, token=token)
 
     async def list_tnved_codes(self, **filters: Any) -> dict[str, Any]:
-        """TN VED EAEU classifier — `GET /nsi/tnved/` (planned).
+        """TN VED EAEU classifier — `GET /nsi/tnved/`.
 
         Only relevant for certificates and declarations; not linked to
-        vehicle type-approvals.
+        vehicle type-approvals. Filters: ``prefix`` (code startswith),
+        ``query`` (name icontains), ``level``, ``is_active``.
         """
         token = filters.pop("token", None)
         return await self._get("/nsi/tnved/", params=filters, token=token)
