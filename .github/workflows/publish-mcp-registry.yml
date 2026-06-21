@@ -1,0 +1,19 @@
+name: Publish to Official MCP Registry
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write  # GitHub OIDC -> verifies namespace io.github.<org>/...
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish server.json to registry.modelcontextprotocol.io
+        uses: modelcontextprotocol/publish-mcp-server@v1
+        with:
+          server-json: server.json

@@ -1,0 +1,73 @@
+{
+  "manifest_version": "0.2",
+  "name": "hpt-su",
+  "version": "0.1.0",
+  "display_name": "hpt.su — Russian/EAEU vehicle compliance docs",
+  "description": "Search the hpt.su registry of Russian/EAEU vehicle compliance documents (type approvals ОТТС/СБКТС/ОТШ, conformity certificates, declarations, СУТ type-approval notifications).",
+  "long_description": "MCP server that connects any MCP-compatible AI assistant to https://hpt.su — an aggregated database of Russian Federation and Eurasian Economic Union vehicle compliance documents. Search vehicle type approvals (ОТТС, ОТШ), safety-of-design certificates (СБКТС), conformity certificates and declarations under TR CU / TR EAEU technical regulations, and type-approval notifications (СУТ). Requires a Bearer API key from a hpt.su account with an active API_TIER subscription.",
+  "author": {
+    "name": "hpt.su",
+    "url": "https://hpt.su"
+  },
+  "homepage": "https://hpt.su",
+  "documentation": "https://hpt.su/api/v1/docs/",
+  "support": "https://github.com/hpt-su/hptsu-mcp/issues",
+  "license": "MIT",
+  "keywords": [
+    "vehicle",
+    "type-approval",
+    "russia",
+    "eaeu",
+    "compliance",
+    "otts",
+    "sbkts",
+    "certificate",
+    "declaration",
+    "tr-cu-018"
+  ],
+  "icon": "icon.png",
+  "server": {
+    "type": "python",
+    "entry_point": "src/hptsu_mcp/server.py",
+    "mcp_config": {
+      "command": "python",
+      "args": ["-m", "hptsu_mcp.server"],
+      "env": {
+        "HPTSU_API_KEY": "${user_config.api_key}",
+        "HPTSU_BASE_URL": "${user_config.base_url}"
+      }
+    }
+  },
+  "user_config": {
+    "api_key": {
+      "type": "string",
+      "title": "hpt.su API key",
+      "description": "Bearer key from the hpt.su cabinet (requires active API_TIER subscription).",
+      "sensitive": true,
+      "required": true
+    },
+    "base_url": {
+      "type": "string",
+      "title": "API base URL",
+      "description": "Override for staging / on-prem deployments.",
+      "default": "https://hpt.su/api/v1",
+      "required": false
+    }
+  },
+  "tools": [
+    { "name": "search_documents", "description": "Cross-registry search by document number." },
+    { "name": "get_document", "description": "Fetch a single Document by UUID." },
+    { "name": "search_certificates", "description": "Conformity certificates with filters." },
+    { "name": "search_declarations", "description": "Declarations of conformity." },
+    { "name": "search_type_approvals", "description": "Vehicle / chassis type approvals (ОТТС / ОТШ)." },
+    { "name": "search_safety_reports", "description": "СБКТС / СУТ / ЗОЕТС / ЗОТШ / ЗОТТС feeds." },
+    { "name": "list_registry_kinds", "description": "Enumerate registry kinds." }
+  ],
+  "compatibility": {
+    "claude_desktop": ">=0.10.0",
+    "platforms": ["darwin", "linux", "win32"],
+    "runtimes": {
+      "python": ">=3.11"
+    }
+  }
+}

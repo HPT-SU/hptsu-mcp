@@ -1,0 +1,39 @@
+{
+  "$schema": "https://glama.ai/mcp/schemas/server.json",
+  "name": "hpt-su",
+  "displayName": "hpt.su MCP server",
+  "description": "Search the hpt.su registry of Russian/EAEU vehicle compliance documents — type approvals, conformity certificates, declarations and type-approval notifications.",
+  "homepage": "https://hpt.su",
+  "license": "MIT",
+  "tags": [
+    "vehicle",
+    "certification",
+    "eaeu",
+    "russia",
+    "compliance",
+    "type-approval"
+  ],
+  "maintainers": [
+    {
+      "name": "hpt.su",
+      "email": "mcp@hpt.su"
+    }
+  ],
+  "tools": [
+    "search_documents",
+    "get_document",
+    "search_certificates",
+    "search_declarations",
+    "search_type_approvals",
+    "search_safety_reports",
+    "search_by_vin",
+    "fulltext_search",
+    "download_document_file",
+    "list_brands",
+    "list_vehicle_models",
+    "list_test_labs",
+    "list_certification_bodies",
+    "list_tnved_codes",
+    "list_registry_kinds"
+  ]
+}

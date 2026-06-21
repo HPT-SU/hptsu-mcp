@@ -1,0 +1,46 @@
+name: hpt-su
+displayName: hpt.su — Russian/EAEU vehicle compliance documents
+description: |
+  Search the hpt.su registry of Russian and EAEU vehicle compliance documents:
+  vehicle type approvals (ОТТС), chassis type approvals (ОТШ), safety-of-design
+  certificates (СБКТС), conformity certificates and declarations of conformity
+  (ТР ТС / ТР ЕАЭС), and type-approval notifications (СУТ).
+  Source registry: https://hpt.su · API docs: https://hpt.su/api/v1/docs/
+homepage: https://hpt.su
+license: MIT
+keywords:
+  - hpt.su
+  - eaeu
+  - russia
+  - vehicle-certification
+  - type-approval
+  - otts
+  - sbkts
+  - conformity-certificate
+  - declaration-of-conformity
+  - sout
+  - tr-cu-018
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    required: [hptsuApiKey]
+    properties:
+      hptsuApiKey:
+        type: string
+        title: hpt.su API key
+        description: Bearer key from the hpt.su cabinet (active API_TIER subscription required).
+        format: password
+      hptsuBaseUrl:
+        type: string
+        title: API base URL
+        description: Override for staging / on-prem deployments.
+        default: https://hpt.su/api/v1
+  commandFunction: |
+    (config) => ({
+      command: 'hptsu-mcp',
+      env: {
+        HPTSU_API_KEY: config.hptsuApiKey,
+        HPTSU_BASE_URL: config.hptsuBaseUrl || 'https://hpt.su/api/v1'
+      }
+    })
