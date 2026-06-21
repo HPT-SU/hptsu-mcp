@@ -28,29 +28,49 @@ class HptSuApiError(RuntimeError):
 
 
 class HptSuClient:
-    """Async client over /api/v1/. One instance per MCP-session is enough."""
+    """Async client over /api/v1/.
+
+    Один экземпляр на MCP-сессию. API-ключ может задаваться через:
+
+    1. ``settings.api_key`` — default header (для stdio-режима, ключ из env).
+    2. Per-call ``token=`` параметр в любом методе ниже — для hosted-режима
+       (mcp.hpt.su), где ключ извлекается из заголовка ``Authorization``
+       входящего MCP-запроса и пробрасывается в upstream per-tool-call.
+
+    Если ни то ни другое не задано — ходим без auth (используется
+    ``/readyz`` probe, ждёт 401 как «upstream живой»).
+
+    Формат токена везде один: ``<public_id>:<secret>``. На hpt.su backend
+    он передаётся в заголовке ``X-API-Key`` (см. td_billing.api.auth).
+    """
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        headers: dict[str, str] = {
-            "Accept": "application/json",
-            "User-Agent": settings.user_agent,
-        }
-        if settings.api_key:
-            headers["Authorization"] = f"Bearer {settings.api_key}"
-        # Optional client attribution — populated lazily via set_mcp_client().
+        self._default_token = settings.api_key
+        self._mcp_client_tag: str | None = None
         self._client = httpx.AsyncClient(
             base_url=settings.base_url.rstrip("/"),
             timeout=settings.timeout,
-            headers=headers,
+            headers={
+                "Accept": "application/json",
+                "User-Agent": settings.user_agent,
+            },
         )
 
     def set_mcp_client(self, name: str | None, version: str | None) -> None:
         """Attach X-MCP-Client header sourced from the MCP `clientInfo` block."""
         if not name:
             return
-        tag = f"{name}/{version}" if version else name
-        self._client.headers["X-MCP-Client"] = tag
+        self._mcp_client_tag = f"{name}/{version}" if version else name
+
+    def _build_headers(self, token: str | None) -> dict[str, str]:
+        h: dict[str, str] = {}
+        chosen = token if token is not None else self._default_token
+        if chosen:
+            h["X-API-Key"] = chosen
+        if self._mcp_client_tag:
+            h["X-MCP-Client"] = self._mcp_client_tag
+        return h
 
     async def close(self) -> None:
         await self._client.aclose()
@@ -63,9 +83,10 @@ class HptSuClient:
 
     # ---------- raw plumbing ----------
 
-    async def _get(self, path: str, *, params: dict[str, Any] | None = None) -> Any:
+    async def _get(self, path: str, *, params: dict[str, Any] | None = None,
+                   token: str | None = None) -> Any:
         clean = {k: v for k, v in (params or {}).items() if v is not None and v != ""}
-        resp = await self._client.get(path, params=clean)
+        resp = await self._client.get(path, params=clean, headers=self._build_headers(token))
         if resp.status_code >= 400:
             try:
                 detail = resp.json()
@@ -74,8 +95,10 @@ class HptSuClient:
             raise HptSuApiError(resp.status_code, str(detail))
         return resp.json()
 
-    async def _post(self, path: str, *, json: dict[str, Any] | None = None) -> Any:
-        resp = await self._client.post(path, json=json or {})
+    async def _post(self, path: str, *, json: dict[str, Any] | None = None,
+                    token: str | None = None) -> Any:
+        resp = await self._client.post(path, json=json or {},
+                                       headers=self._build_headers(token))
         if resp.status_code >= 400:
             try:
                 detail = resp.json()
@@ -85,26 +108,35 @@ class HptSuClient:
         return resp.json()
 
     # ---------- public endpoints (live) ----------
+    #
+    # Каждый метод принимает опциональный `token` через **filters / **kwargs.
+    # В hosted-режиме MCP-сервер достаёт ключ из Authorization-заголовка
+    # входящего запроса и пробрасывает в каждый upstream-вызов; в stdio —
+    # пользуется default из env (`settings.api_key`).
 
     async def list_documents(self, **filters: Any) -> dict[str, Any]:
         """Global cross-kind document search — `GET /docs/`."""
-        return await self._get("/docs/", params=filters)
+        token = filters.pop("token", None)
+        return await self._get("/docs/", params=filters, token=token)
 
-    async def get_document(self, doc_id: str) -> dict[str, Any]:
+    async def get_document(self, doc_id: str, *, token: str | None = None) -> dict[str, Any]:
         """Document by UUID (number_code) — `GET /docs/{id}/`."""
-        return await self._get(f"/docs/{doc_id}/")
+        return await self._get(f"/docs/{doc_id}/", token=token)
 
     async def list_certificates(self, **filters: Any) -> dict[str, Any]:
         """Conformity certificates — `GET /docs/cert/`."""
-        return await self._get("/docs/cert/", params=filters)
+        token = filters.pop("token", None)
+        return await self._get("/docs/cert/", params=filters, token=token)
 
     async def list_declarations(self, **filters: Any) -> dict[str, Any]:
         """Declarations of conformity — `GET /docs/decl/`."""
-        return await self._get("/docs/decl/", params=filters)
+        token = filters.pop("token", None)
+        return await self._get("/docs/decl/", params=filters, token=token)
 
     async def list_by_kind(self, kind: str, **filters: Any) -> dict[str, Any]:
         """Per-kind list — `GET /docs/{kind}/`."""
-        return await self._get(f"/docs/{kind}/", params=filters)
+        token = filters.pop("token", None)
+        return await self._get(f"/docs/{kind}/", params=filters, token=token)
 
     # ---------- planned endpoints (require P1 work on hpt_su) ----------
 
@@ -114,7 +146,8 @@ class HptSuClient:
         Not yet live (see docs/integration-hpt-su.md §5). The server will 404
         until upstream lands.
         """
-        return await self._get(f"/docs/by_vin/{vin}/", params=filters)
+        token = filters.pop("token", None)
+        return await self._get(f"/docs/by_vin/{vin}/", params=filters, token=token)
 
     async def fulltext_search(self, q: str, **filters: Any) -> dict[str, Any]:
         """Full-text search inside PDF bodies — `GET /docs/fulltext/?q=...`.
@@ -122,9 +155,11 @@ class HptSuClient:
         Requires an active `use_fulltext` feature on the calling key
         (premium). Not yet live — see docs/integration-hpt-su.md §6.
         """
-        return await self._get("/docs/fulltext/", params={"q": q, **filters})
+        token = filters.pop("token", None)
+        return await self._get("/docs/fulltext/", params={"q": q, **filters}, token=token)
 
-    async def download_document_file(self, doc_id: str, file_id: str | None = None) -> dict[str, Any]:
+    async def download_document_file(self, doc_id: str, file_id: str | None = None,
+                                     *, token: str | None = None) -> dict[str, Any]:
         """Issue a signed download URL — `POST /docs/{uuid}/download/`.
 
         Requires either an active subscription covering the document's kind
@@ -134,25 +169,29 @@ class HptSuClient:
         payload: dict[str, Any] = {}
         if file_id:
             payload["file_id"] = file_id
-        return await self._post(f"/docs/{doc_id}/download/", json=payload)
+        return await self._post(f"/docs/{doc_id}/download/", json=payload, token=token)
 
     # ---------- reference / NSI dictionaries ----------
 
     async def list_brands(self, **filters: Any) -> dict[str, Any]:
         """Vehicle brands — `GET /nsi/brands/` (planned, P1 §7)."""
-        return await self._get("/nsi/brands/", params=filters)
+        token = filters.pop("token", None)
+        return await self._get("/nsi/brands/", params=filters, token=token)
 
     async def list_vehicle_models(self, **filters: Any) -> dict[str, Any]:
         """Vehicle models — `GET /nsi/vehicle-models/` (planned, P1 §7)."""
-        return await self._get("/nsi/vehicle-models/", params=filters)
+        token = filters.pop("token", None)
+        return await self._get("/nsi/vehicle-models/", params=filters, token=token)
 
     async def list_test_labs(self, **filters: Any) -> dict[str, Any]:
         """Accredited testing laboratories — `GET /nsi/test-labs/` (planned)."""
-        return await self._get("/nsi/test-labs/", params=filters)
+        token = filters.pop("token", None)
+        return await self._get("/nsi/test-labs/", params=filters, token=token)
 
     async def list_certification_bodies(self, **filters: Any) -> dict[str, Any]:
         """Certification bodies — `GET /nsi/certification-bodies/` (planned)."""
-        return await self._get("/nsi/certification-bodies/", params=filters)
+        token = filters.pop("token", None)
+        return await self._get("/nsi/certification-bodies/", params=filters, token=token)
 
     async def list_tnved_codes(self, **filters: Any) -> dict[str, Any]:
         """TN VED EAEU classifier — `GET /nsi/tnved/` (planned).
@@ -160,4 +199,5 @@ class HptSuClient:
         Only relevant for certificates and declarations; not linked to
         vehicle type-approvals.
         """
-        return await self._get("/nsi/tnved/", params=filters)
+        token = filters.pop("token", None)
+        return await self._get("/nsi/tnved/", params=filters, token=token)

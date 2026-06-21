@@ -15,7 +15,8 @@ def settings() -> Settings:
 
 
 @pytest.mark.asyncio
-async def test_authorization_header_sent(settings: Settings) -> None:
+async def test_default_api_key_sent_as_x_api_key(settings: Settings) -> None:
+    """Stdio-режим: ключ из env идёт в X-API-Key (формат хочет td_billing)."""
     async with HptSuClient(settings) as client, respx.mock(base_url=settings.base_url) as mock:
         route = mock.get("/docs/").mock(
             return_value=httpx.Response(200, json={"count": 0, "results": []}),
@@ -23,7 +24,19 @@ async def test_authorization_header_sent(settings: Settings) -> None:
         await client.list_documents()
         assert route.called
         req = route.calls.last.request
-        assert req.headers["Authorization"] == "Bearer test-key"
+        assert req.headers["X-API-Key"] == "test-key"
+        assert "Authorization" not in req.headers
+
+
+@pytest.mark.asyncio
+async def test_per_request_token_overrides_default(settings: Settings) -> None:
+    """Hosted: token= per-call перебивает default из settings."""
+    async with HptSuClient(settings) as client, respx.mock(base_url=settings.base_url) as mock:
+        route = mock.get("/docs/").mock(
+            return_value=httpx.Response(200, json={}),
+        )
+        await client.list_documents(token="per-call-token")
+        assert route.calls.last.request.headers["X-API-Key"] == "per-call-token"
 
 
 @pytest.mark.asyncio
@@ -80,7 +93,9 @@ async def test_no_auth_when_key_missing() -> None:
     async with HptSuClient(settings) as client, respx.mock(base_url=settings.base_url) as mock:
         route = mock.get("/docs/").mock(return_value=httpx.Response(200, json={}))
         await client.list_documents()
-        assert "Authorization" not in route.calls.last.request.headers
+        headers = route.calls.last.request.headers
+        assert "Authorization" not in headers
+        assert "X-API-Key" not in headers
 
 
 @pytest.mark.asyncio
@@ -99,6 +114,18 @@ async def test_x_mcp_client_no_version(settings: Settings) -> None:
         route = mock.get("/docs/").mock(return_value=httpx.Response(200, json={}))
         await client.list_documents()
         assert route.calls.last.request.headers["X-MCP-Client"] == "cursor"
+
+
+@pytest.mark.asyncio
+async def test_per_request_token_used_in_post(settings: Settings) -> None:
+    """Token override работает и для POST-методов (download)."""
+    uid = "550e8400-e29b-41d4-a716-446655440000"
+    async with HptSuClient(settings) as client, respx.mock(base_url=settings.base_url) as mock:
+        route = mock.post(f"/docs/{uid}/download/").mock(
+            return_value=httpx.Response(200, json={"url": "..."}),
+        )
+        await client.download_document_file(uid, token="hosted-token")
+        assert route.calls.last.request.headers["X-API-Key"] == "hosted-token"
 
 
 @pytest.mark.asyncio

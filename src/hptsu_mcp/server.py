@@ -47,8 +47,8 @@ REGISTRY_KINDS: dict[str, str] = {
     "otch": "ОТШ — Одобрение типа шасси (Chassis Type Approval)",
     "sout": "СУТ — Сообщение об утверждении типа транспортного средства (Notification of Type Approval)",
     "zoets": "ЗОЕТС — Заключение об оценке единичного транспортного средства",
-    "zotch": "ЗОТШ — Заключение об оценке шасси",
-    "zotts": "ЗОТТС — Заключение об оценке транспортного средства",
+    "zotch": "ЗОТШ — Заключение об оценке типа шасси",
+    "zotts": "ЗОТТС — Заключение об оценке типа транспортного средства",
 }
 
 
@@ -89,6 +89,31 @@ def _get_client(ctx: Context) -> HptSuClient:
     return client
 
 
+def _request_token(ctx: Context) -> str | None:
+    """Извлечь API-ключ из заголовка входящего HTTP-запроса (hosted mode).
+
+    Для stdio — заголовка нет, возвращаем None и клиент использует
+    `settings.api_key` из env. В streamable-http режиме MCP-клиент
+    (Claude/Cursor/Cline) кладёт ключ в ``Authorization: Bearer <token>``
+    или ``X-API-Key: <token>``; парсим оба, чтобы не зависеть от
+    конкретной реализации клиента.
+
+    Формат токена ожидается ``<public_id>:<secret>`` — это то, что
+    td_billing.api.auth.ApiKeyAuthentication принимает в X-API-Key.
+    """
+    req = getattr(ctx.request_context, "request", None)
+    headers = getattr(req, "headers", None)
+    if headers is None:
+        return None
+    direct = headers.get("x-api-key")
+    if direct:
+        return direct
+    auth = headers.get("authorization", "")
+    if auth.lower().startswith("bearer "):
+        return auth.split(" ", 1)[1].strip() or None
+    return None
+
+
 def _format(result: Any) -> str:
     return json.dumps(result, ensure_ascii=False, indent=2)
 
@@ -121,8 +146,9 @@ async def search_documents(
 ) -> str:
     """Cross-registry search by document number across all hpt.su kinds."""
     client = _get_client(ctx)
+    token = _request_token(ctx)
     try:
-        data = await client.list_documents(number=number, page=page, page_size=page_size)
+        data = await client.list_documents(number=number, page=page, page_size=page_size, token=token)
     except HptSuApiError as exc:
         return _err(exc)
     return _format(data)
@@ -136,7 +162,7 @@ async def get_document(
     """Fetch a single Document by its UUID."""
     client = _get_client(ctx)
     try:
-        return _format(await client.get_document(document_id))
+        return _format(await client.get_document(document_id, token=_request_token(ctx)))
     except HptSuApiError as exc:
         return _err(exc)
 
@@ -159,6 +185,7 @@ async def search_certificates(
         data = await client.list_certificates(
             number=number, applicant=applicant, status=status, scheme=scheme,
             code=code, has_doc=has_doc, page=page, page_size=page_size,
+            token=_request_token(ctx),
         )
     except HptSuApiError as exc:
         return _err(exc)
@@ -182,6 +209,7 @@ async def search_declarations(
         data = await client.list_declarations(
             number=number, applicant=applicant, status=status, code=code,
             has_doc=has_doc, page=page, page_size=page_size,
+            token=_request_token(ctx),
         )
     except HptSuApiError as exc:
         return _err(exc)
@@ -207,7 +235,7 @@ async def search_type_approvals(
     try:
         data = await client.list_by_kind(
             kind, number=number, applicant=applicant, brand=brand, model=model,
-            year=year, page=page, page_size=page_size,
+            year=year, page=page, page_size=page_size, token=_request_token(ctx),
         )
     except HptSuApiError as exc:
         return _err(exc)
@@ -231,6 +259,7 @@ async def search_safety_reports(
     try:
         data = await client.list_by_kind(
             kind, number=number, applicant=applicant, page=page, page_size=page_size,
+            token=_request_token(ctx),
         )
     except HptSuApiError as exc:
         return _err(exc)
@@ -253,7 +282,7 @@ async def search_by_vin(
         return f"Invalid VIN length: {len(vin)} chars (expected 10-17)."
     client = _get_client(ctx)
     try:
-        return _format(await client.search_by_vin(vin))
+        return _format(await client.search_by_vin(vin, token=_request_token(ctx)))
     except HptSuApiError as exc:
         return _err(exc)
 
@@ -271,7 +300,8 @@ async def fulltext_search(
     """
     client = _get_client(ctx)
     try:
-        data = await client.fulltext_search(query, kind=kind, page=page, page_size=page_size)
+        data = await client.fulltext_search(query, kind=kind, page=page, page_size=page_size,
+                                            token=_request_token(ctx))
     except HptSuApiError as exc:
         return _err(exc)
     return _format(data)
@@ -291,7 +321,8 @@ async def download_document_file(
     """
     client = _get_client(ctx)
     try:
-        return _format(await client.download_document_file(document_id, file_id=file_id))
+        return _format(await client.download_document_file(
+            document_id, file_id=file_id, token=_request_token(ctx)))
     except HptSuApiError as exc:
         return _err(exc)
 
@@ -310,7 +341,8 @@ async def list_brands(
     type approvals)."""
     client = _get_client(ctx)
     try:
-        return _format(await client.list_brands(name=name, page=page, page_size=page_size))
+        return _format(await client.list_brands(
+            name=name, page=page, page_size=page_size, token=_request_token(ctx)))
     except HptSuApiError as exc:
         return _err(exc)
 
@@ -328,6 +360,7 @@ async def list_vehicle_models(
     try:
         return _format(await client.list_vehicle_models(
             brand=brand, name=name, page=page, page_size=page_size,
+            token=_request_token(ctx),
         ))
     except HptSuApiError as exc:
         return _err(exc)
@@ -346,6 +379,7 @@ async def list_test_labs(
     try:
         return _format(await client.list_test_labs(
             name=name, short_id=short_id, page=page, page_size=page_size,
+            token=_request_token(ctx),
         ))
     except HptSuApiError as exc:
         return _err(exc)
@@ -363,6 +397,7 @@ async def list_certification_bodies(
     try:
         return _format(await client.list_certification_bodies(
             name=name, page=page, page_size=page_size,
+            token=_request_token(ctx),
         ))
     except HptSuApiError as exc:
         return _err(exc)
@@ -385,6 +420,7 @@ async def list_tnved_codes(
     try:
         return _format(await client.list_tnved_codes(
             prefix=prefix, query=query, page=page, page_size=page_size,
+            token=_request_token(ctx),
         ))
     except HptSuApiError as exc:
         return _err(exc)
@@ -412,19 +448,28 @@ async def healthz(_request: Request) -> JSONResponse:
 
 @mcp.custom_route("/readyz", methods=["GET"], include_in_schema=False)
 async def readyz(_request: Request) -> JSONResponse:
-    """Readiness probe — verifies upstream hpt.su is reachable."""
+    """Readiness probe — проверяет, что upstream hpt.su отвечает.
+
+    Не использует сервисный ключ (контейнер на hosted его не хранит) —
+    ходит в `/api/v1/docs/` без auth и ожидает 401. Это значит:
+
+    * TLS-handshake прошёл;
+    * DNS резолвится;
+    * Django + DRF + ApiKeyAuthentication работают (вернули JSON-401).
+
+    Любой 5xx / connection-error / timeout → 503 «not ready».
+    """
     settings = load_settings()
+    # Стираем default api_key чтобы probe был без auth (deterministic).
+    settings = settings.model_copy(update={"api_key": None})
     async with HptSuClient(settings) as client:
         try:
-            # Cheap call: list one document — exercises auth and routing.
             await client.list_documents(page=1, page_size=1)
         except HptSuApiError as exc:
-            # 401/403 means our key is bad; 5xx means upstream is down.
             if exc.status_code in (401, 403):
-                return JSONResponse(
-                    {"status": "error", "detail": "upstream auth failed"},
-                    status_code=503,
-                )
+                # Это ожидаемый результат — upstream живой и аутентифицирующий.
+                return JSONResponse({"status": "ready", "version": __version__,
+                                     "upstream": "auth-rejected-as-expected"})
             return JSONResponse(
                 {"status": "error", "detail": f"upstream {exc.status_code}"},
                 status_code=503,
@@ -434,7 +479,9 @@ async def readyz(_request: Request) -> JSONResponse:
                 {"status": "error", "detail": str(exc)},
                 status_code=503,
             )
-    return JSONResponse({"status": "ready", "version": __version__})
+        # Если 200 пришёл — тоже норм (вдруг unauthenticated endpoint открыт).
+        return JSONResponse({"status": "ready", "version": __version__,
+                             "upstream": "200"})
 
 
 # ──── Resources ───────────────────────────────────────────────────────────
@@ -456,6 +503,31 @@ def about_registry() -> str:
 # ──── Entry point ─────────────────────────────────────────────────────────
 
 
+def _configure_http_binding() -> None:
+    """Apply host/port/allowed_hosts from env to FastMCP's settings.
+
+    Used only for streamable-http and sse transports. FastMCP defaults to
+    binding 127.0.0.1, which is wrong for hosted setups behind nginx;
+    Docker forwards traffic to the container's external network interface,
+    so we must bind 0.0.0.0 (configured via HPTSU_HOST in the compose file).
+
+    Also relaxes the DNS-rebind protection: FastMCP defaults to allowing
+    only localhost as Host header, which would reject `mcp.hpt.su`
+    completely. Production must whitelist the public hostname.
+    """
+    settings: Settings = load_settings()
+    mcp.settings.host = settings.host
+    mcp.settings.port = settings.port
+    if settings.allowed_hosts:
+        hosts = [h.strip() for h in settings.allowed_hosts.split(",") if h.strip()]
+        ts = mcp.settings.transport_security
+        # Add to the default localhost-allowlist so probes still work.
+        ts.allowed_hosts = list(set(list(ts.allowed_hosts) + hosts))
+        # Same for origins — keep localhost defaults, add public hosts.
+        public_origins = [f"https://{h.split(':', 1)[0]}" for h in hosts]
+        ts.allowed_origins = list(set(list(ts.allowed_origins) + public_origins))
+
+
 def main() -> None:
     logging.basicConfig(
         level=os.getenv("HPTSU_LOG_LEVEL", "INFO"),
@@ -463,8 +535,10 @@ def main() -> None:
     )
     transport = os.getenv("HPTSU_TRANSPORT", "stdio").lower()
     if transport in {"http", "streamable-http", "streamable_http"}:
+        _configure_http_binding()
         mcp.run(transport="streamable-http")
     elif transport == "sse":
+        _configure_http_binding()
         mcp.run(transport="sse")
     else:
         mcp.run(transport="stdio")

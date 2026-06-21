@@ -15,8 +15,9 @@
 2. **TLS**: `certbot --nginx -d mcp.hpt.su` (или другой ACME-клиент).
 3. **External-сеть**: подставить реальное имя Docker-сети hpt.su в `networks.hpt_su_internal.name` в compose.
 4. **Имя сервиса hpt.su web**: подставить в `HPTSU_BASE_URL` если отличается от `hpt_su_web`. Проверить `docker network inspect <network>`.
-5. **API-ключ**: положить `HPTSU_API_KEY=<scope=MCP key>` в окружение (.env / secrets).
-6. **nginx include**: положить `nginx-mcp.conf` в `/etc/nginx/sites-available/` и включить через симлинк.
+5. **nginx include**: положить `nginx-mcp.conf` в `/etc/nginx/sites-available/` и включить через симлинк.
+
+**Сервисный ключ не нужен**: ключ юзера приходит per-request в заголовке `Authorization: Bearer <key>` или `X-API-Key: <key>` от его MCP-клиента (Claude/Cursor/Cline). Контейнер не хранит ничего.
 
 ## Что НЕ нужно
 
@@ -37,9 +38,9 @@
 curl https://mcp.hpt.su/healthz
 # {"status":"ok","version":"0.1.0"}
 
-# Readiness (проверяет upstream)
+# Readiness (проверяет upstream — ходит в hpt.su без auth, ждёт 401)
 curl https://mcp.hpt.su/readyz
-# {"status":"ready","version":"0.1.0"}
+# {"status":"ready","version":"0.1.0","upstream":"auth-rejected-as-expected"}
 
 # MCP-протокол — инициализация (для теста через mcp-cli)
 npx @modelcontextprotocol/inspector https://mcp.hpt.su/mcp

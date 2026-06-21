@@ -27,12 +27,19 @@ services:
       # Backend API — обращаемся напрямую к web-сервису внутри сети hpt_su,
       # минуя публичный nginx (быстрее, не идёт через TLS-терминатор).
       HPTSU_BASE_URL: http://hpt_su_web:8000/api/v1
-      # API-ключ для readiness-проверки + дефолтный для требующих ключ tools.
-      # Должен быть scope=MCP (см. docs/integration-hpt-su.md §1).
-      HPTSU_API_KEY: ${HPTSU_API_KEY}
+      # API-ключ НЕ нужен в hosted-режиме: ключ юзера приходит per-request
+      # в Authorization-заголовке и пробрасывается в upstream. /readyz
+      # ходит в upstream без auth и ждёт 401 как «жив». Если хочется иметь
+      # default-ключ для отладки — раскомментируй.
+      # HPTSU_API_KEY: ${HPTSU_API_KEY}
       HPTSU_TIMEOUT: "30"
       HPTSU_LOG_LEVEL: INFO
       HPTSU_USER_AGENT: "hptsu-mcp-hosted/0.1"
+      # Bind: 0.0.0.0 чтобы nginx из соседнего контейнера достучался.
+      HPTSU_HOST: 0.0.0.0
+      HPTSU_PORT: "8000"
+      # DNS-rebind защита: разрешаем public host, иначе FastMCP отбросит.
+      HPTSU_ALLOWED_HOSTS: "mcp.hpt.su,mcp.hpt.su:*"
 
     # Healthcheck в Dockerfile уже определён — переопределять не нужно.
 

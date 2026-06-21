@@ -22,8 +22,10 @@ class Settings(BaseSettings):
     api_key: str | None = Field(
         default=None,
         description=(
-            "Bearer API key issued in the hpt.su personal cabinet "
-            "(requires active API_TIER subscription)."
+            "API key from hpt.su cabinet (https://hpt.su/cabinet/mcp/). "
+            "Format: `<public_id>:<secret>`. Required for stdio transport; "
+            "in streamable-http mode the key is extracted from the incoming "
+            "Authorization header per-request."
         ),
     )
     base_url: str = Field(
@@ -37,6 +39,28 @@ class Settings(BaseSettings):
     user_agent: str = Field(
         default="hptsu-mcp/0.1",
         description="User-Agent header for outgoing API calls.",
+    )
+
+    # ──── HTTP-transport server binding (streamable-http / sse only) ─────
+    host: str = Field(
+        default="127.0.0.1",
+        description=(
+            "Bind address for HTTP transports. Set to `0.0.0.0` for "
+            "production hosted deploys (mcp.hpt.su)."
+        ),
+    )
+    port: int = Field(
+        default=8000,
+        description="Port for HTTP transports.",
+    )
+    allowed_hosts: str = Field(
+        default="",
+        description=(
+            "Comma-separated list of allowed `Host:` header values "
+            "(DNS-rebinding protection). Empty = FastMCP default "
+            "(localhost-only). For production set "
+            "`mcp.hpt.su,mcp.hpt.su:*`."
+        ),
     )
 
 
