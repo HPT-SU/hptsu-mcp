@@ -308,21 +308,47 @@ async def fulltext_search(
 
 
 @mcp.tool()
+async def list_document_files(
+    ctx: Context,
+    document_id: str = Field(description="Document UUID (number_code from search)."),
+) -> str:
+    """List the files attached to a document.
+
+    Returns `[{file_uid, file_name, kind, pages_count, published_at}]` —
+    each entry's `file_uid` can be passed to `download_document_file`.
+
+    A document often has several PDFs (e.g. cleaned + original); use this
+    tool to enumerate them and pick the right one before download.
+    """
+    client = _get_client(ctx)
+    try:
+        return _format(await client.list_document_files(
+            document_id, token=_request_token(ctx)))
+    except HptSuApiError as exc:
+        return _err(exc)
+
+
+@mcp.tool()
 async def download_document_file(
     ctx: Context,
-    document_id: str = Field(description="Document UUID."),
-    file_id: str | None = Field(default=None, description="Specific file UUID (if a document has several)."),
+    file_uid: str = Field(description="DocumentFile UID (from list_document_files)."),
 ) -> str:
-    """Issue a signed, time-limited URL to download the document PDF.
+    """Issue a signed URL to download the document PDF from hpt.su.
+
+    Returns `{download_url, file_name, kind, document_id}`. The URL is
+    encrypted with the user_id behind the API key — opening it works only
+    if the user is signed in to hpt.su under the same account. The
+    `dl_counter` is decremented on the website at actual download time, not
+    here.
 
     Requires an active subscription covering the document's kind or a
-    stand-alone DOC_PURCHASE. On the free tier this returns an upgrade
-    prompt with a link to https://hpt.su/pricing/.
+    stand-alone DOC_PURCHASE. On the free tier returns 403 with an
+    upgrade prompt to https://hpt.su/pricing/.
     """
     client = _get_client(ctx)
     try:
         return _format(await client.download_document_file(
-            document_id, file_id=file_id, token=_request_token(ctx)))
+            file_uid, token=_request_token(ctx)))
     except HptSuApiError as exc:
         return _err(exc)
 

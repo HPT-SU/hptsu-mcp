@@ -158,18 +158,28 @@ class HptSuClient:
         token = filters.pop("token", None)
         return await self._get("/docs/fulltext/", params={"q": q, **filters}, token=token)
 
-    async def download_document_file(self, doc_id: str, file_id: str | None = None,
-                                     *, token: str | None = None) -> dict[str, Any]:
-        """Issue a signed download URL — `POST /docs/{uuid}/download/`.
+    async def list_document_files(self, document_id: str,
+                                  *, token: str | None = None) -> list[dict[str, Any]]:
+        """Список файлов документа — `GET /docs/{document_uuid}/files/`.
 
-        Requires either an active subscription covering the document's kind
-        or a stand-alone DOC_PURCHASE. Not yet live — see
-        docs/integration-hpt-su.md §9.
+        Используется для resolve Document UUID → набор DocumentFile UIDs
+        перед скачиванием через `download_document_file(file_uid)`.
         """
-        payload: dict[str, Any] = {}
-        if file_id:
-            payload["file_id"] = file_id
-        return await self._post(f"/docs/{doc_id}/download/", json=payload, token=token)
+        return await self._get(f"/docs/{document_id}/files/", token=token)
+
+    async def download_document_file(self, file_uid: str,
+                                     *, token: str | None = None) -> dict[str, Any]:
+        """Issue a signed download URL — `POST /files/{file_uid}/download/`.
+
+        `file_uid` — DocumentFile UID (получить через `list_document_files`,
+        не Document UUID). Возвращает `{download_url, file_name, kind, ...}`.
+        URL зашифрован под текущего пользователя — счётчик списывается на
+        сайте hpt.su при реальном скачивании.
+
+        Требует активной подписки covering kind документа или DOC_PURCHASE.
+        На free MCP вернёт 403 с upgrade-сообщением.
+        """
+        return await self._post(f"/files/{file_uid}/download/", token=token)
 
     # ---------- reference / NSI dictionaries ----------
 

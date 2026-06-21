@@ -121,8 +121,8 @@ async def test_per_request_token_used_in_post(settings: Settings) -> None:
     """Token override работает и для POST-методов (download)."""
     uid = "550e8400-e29b-41d4-a716-446655440000"
     async with HptSuClient(settings) as client, respx.mock(base_url=settings.base_url) as mock:
-        route = mock.post(f"/docs/{uid}/download/").mock(
-            return_value=httpx.Response(200, json={"url": "..."}),
+        route = mock.post(f"/files/{uid}/download/").mock(
+            return_value=httpx.Response(200, json={"download_url": "..."}),
         )
         await client.download_document_file(uid, token="hosted-token")
         assert route.calls.last.request.headers["X-API-Key"] == "hosted-token"
@@ -152,12 +152,26 @@ async def test_fulltext_search_sends_q(settings: Settings) -> None:
 async def test_download_post(settings: Settings) -> None:
     uid = "550e8400-e29b-41d4-a716-446655440000"
     async with HptSuClient(settings) as client, respx.mock(base_url=settings.base_url) as mock:
-        route = mock.post(f"/docs/{uid}/download/").mock(
-            return_value=httpx.Response(200, json={"url": "https://files.hpt.su/..."}),
+        route = mock.post(f"/files/{uid}/download/").mock(
+            return_value=httpx.Response(200, json={"download_url": "https://hpt.su/d/..."}),
         )
         result = await client.download_document_file(uid)
         assert route.called
-        assert "url" in result
+        assert "download_url" in result
+
+
+@pytest.mark.asyncio
+async def test_list_document_files(settings: Settings) -> None:
+    doc_uid = "550e8400-e29b-41d4-a716-446655440000"
+    async with HptSuClient(settings) as client, respx.mock(base_url=settings.base_url) as mock:
+        route = mock.get(f"/docs/{doc_uid}/files/").mock(
+            return_value=httpx.Response(200, json=[
+                {"file_uid": "f1", "file_name": "a.pdf", "kind": "otts"},
+            ]),
+        )
+        result = await client.list_document_files(doc_uid)
+        assert route.called
+        assert isinstance(result, list) and result[0]["file_uid"] == "f1"
 
 
 @pytest.mark.asyncio
