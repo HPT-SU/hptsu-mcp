@@ -278,8 +278,8 @@ async def search_by_vin(
     integration backlog, see integration-hpt-su.md §5). Will return 'Not yet
     available' until upstream lands.
     """
-    if not (10 <= len(vin) <= 17):
-        return f"Invalid VIN length: {len(vin)} chars (expected 10-17)."
+    if not (5 <= len(vin) <= 17):
+        return f"Invalid VIN length: {len(vin)} chars (expected 5-17)."
     client = _get_client(ctx)
     try:
         return _format(await client.search_by_vin(vin, token=_request_token(ctx)))
