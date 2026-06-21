@@ -64,10 +64,27 @@ class HptSuClient:
         self._mcp_client_tag = f"{name}/{version}" if version else name
 
     def _build_headers(self, token: str | None) -> dict[str, str]:
+        """Compose headers for outgoing API call.
+
+        `token` may be:
+
+        * ``None`` → use the default ``settings.api_key`` as X-API-Key.
+        * ``"BEARER <oauth_token>"`` → forwarded as
+          ``Authorization: Bearer <oauth_token>`` (hosted MCP via OAuth).
+        * Any other string → forwarded as ``X-API-Key`` (stdio or hosted
+          MCP using a static ApiKey).
+
+        The ``BEARER `` prefix is a hint produced by server-side helper
+        ``_request_token`` when it detects a Bearer header in the
+        incoming MCP HTTP request.
+        """
         h: dict[str, str] = {}
         chosen = token if token is not None else self._default_token
         if chosen:
-            h["X-API-Key"] = chosen
+            if chosen.startswith("BEARER "):
+                h["Authorization"] = "Bearer " + chosen[len("BEARER "):]
+            else:
+                h["X-API-Key"] = chosen
         if self._mcp_client_tag:
             h["X-MCP-Client"] = self._mcp_client_tag
         return h

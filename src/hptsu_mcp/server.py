@@ -90,16 +90,21 @@ def _get_client(ctx: Context) -> HptSuClient:
 
 
 def _request_token(ctx: Context) -> str | None:
-    """Извлечь API-ключ из заголовка входящего HTTP-запроса (hosted mode).
+    """Извлечь токен из заголовка входящего HTTP-запроса (hosted mode).
 
-    Для stdio — заголовка нет, возвращаем None и клиент использует
-    `settings.api_key` из env. В streamable-http режиме MCP-клиент
-    (Claude/Cursor/Cline) кладёт ключ в ``Authorization: Bearer <token>``
-    или ``X-API-Key: <token>``; парсим оба, чтобы не зависеть от
-    конкретной реализации клиента.
+    Поддерживаемые входные форматы:
 
-    Формат токена ожидается ``<public_id>:<secret>`` — это то, что
-    td_billing.api.auth.ApiKeyAuthentication принимает в X-API-Key.
+    * ``X-API-Key: <public_id>:<secret>`` — статичный ApiKey, пробрасываем
+      в upstream через ``X-API-Key`` (формат, который понимает
+      ``td_billing.api.auth.ApiKeyAuthentication``).
+    * ``Authorization: Bearer <oauth_token>`` — OAuth2 access token
+      (Cursor / Smithery / Claude через OAuth flow). Помечаем префиксом
+      ``BEARER `` (см. ``HptSuClient._build_headers``) — клиент пробросит
+      как ``Authorization: Bearer ...`` в upstream, где его прочитает
+      ``OAuthOrApiKeyAuthentication``.
+
+    Для stdio заголовков нет → None, клиент возьмёт
+    ``settings.api_key`` из env.
     """
     req = getattr(ctx.request_context, "request", None)
     headers = getattr(req, "headers", None)
@@ -110,7 +115,8 @@ def _request_token(ctx: Context) -> str | None:
         return direct
     auth = headers.get("authorization", "")
     if auth.lower().startswith("bearer "):
-        return auth.split(" ", 1)[1].strip() or None
+        token = auth.split(" ", 1)[1].strip()
+        return f"BEARER {token}" if token else None
     return None
 
 
