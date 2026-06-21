@@ -1,0 +1,71 @@
+# Пример docker-compose-фрагмента для интеграции `hptsu-mcp` в существующую
+# сеть Docker сервера hpt.su.
+#
+# Подключается к external-сети, в которой уже живут postgres / redis / nginx /
+# celery / hpt_su web. Имя сети ниже — `hpt_su_internal` — должно совпадать с
+# реальным (см. `docker network ls`).
+#
+# Сервис никаких volume не требует — он stateless HTTP-прокси над hpt.su API.
+#
+# Применение:
+#   docker compose -f docker-compose.example.yml up -d
+#
+# или подключить как фрагмент к основному compose hpt_su:
+#   include:
+#     - path: ../hptsu_mcp/deploy/docker-compose.example.yml
+
+services:
+  mcp:
+    # Образ публикуется GitHub Actions на тег v* (см. .github/workflows/publish-docker.yml).
+    image: ghcr.io/hpt-su/hptsu-mcp:latest
+    container_name: hpt_mcp
+    restart: unless-stopped
+
+    environment:
+      # Транспорт для hosted-режима.
+      HPTSU_TRANSPORT: streamable-http
+      # Backend API — обращаемся напрямую к web-сервису внутри сети hpt_su,
+      # минуя публичный nginx (быстрее, не идёт через TLS-терминатор).
+      HPTSU_BASE_URL: http://hpt_su_web:8000/api/v1
+      # API-ключ для readiness-проверки + дефолтный для требующих ключ tools.
+      # Должен быть scope=MCP (см. docs/integration-hpt-su.md §1).
+      HPTSU_API_KEY: ${HPTSU_API_KEY}
+      HPTSU_TIMEOUT: "30"
+      HPTSU_LOG_LEVEL: INFO
+      HPTSU_USER_AGENT: "hptsu-mcp-hosted/0.1"
+
+    # Healthcheck в Dockerfile уже определён — переопределять не нужно.
+
+    networks:
+      # Внутренняя сеть hpt_su — даёт доступ к hpt_su_web (Django), redis, postgres.
+      hpt_su_internal:
+        aliases:
+          - mcp
+          - hpt_mcp
+
+    # Не публикуем порт наружу — внешний трафик идёт через nginx сервера
+    # (см. deploy/nginx-mcp.conf), который проксирует mcp.hpt.su → mcp:8000
+    # по внутренней сети.
+
+    # Лимиты ресурсов — MCP-сервер лёгкий, но защита от утечки.
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
+        reservations:
+          memory: 64M
+
+    # Логи — JSON-driver, общий с остальной инфраструктурой hpt_su.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  hpt_su_internal:
+    external: true
+    # Имя реальной external-сети уточнить через `docker network ls`.
+    # Если у вас сеть называется иначе — замени `name:`.
+    # name: hpt-su_default

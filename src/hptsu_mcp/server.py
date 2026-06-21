@@ -26,7 +26,10 @@ from typing import Any, AsyncIterator
 
 from mcp.server.fastmcp import Context, FastMCP
 from pydantic import Field
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
+from . import __version__
 from .client import HptSuApiError, HptSuClient
 from .config import Settings, load_settings
 
@@ -391,6 +394,47 @@ async def list_tnved_codes(
 async def list_registry_kinds() -> str:
     """Return the catalogue of registry kinds exposed by the hpt.su public API."""
     return _format([{"kind": k, "title": v} for k, v in REGISTRY_KINDS.items()])
+
+
+# ──── Health check (HTTP transport only) ──────────────────────────────────
+
+
+@mcp.custom_route("/healthz", methods=["GET"], include_in_schema=False)
+async def healthz(_request: Request) -> JSONResponse:
+    """Liveness probe — used by Docker / Kubernetes / reverse-proxy.
+
+    Always 200 when the server is up. Does not call upstream hpt.su (so it
+    stays 200 during transient upstream outages and Docker doesn't kill the
+    container). For upstream-aware probe see ``/readyz``.
+    """
+    return JSONResponse({"status": "ok", "version": __version__})
+
+
+@mcp.custom_route("/readyz", methods=["GET"], include_in_schema=False)
+async def readyz(_request: Request) -> JSONResponse:
+    """Readiness probe — verifies upstream hpt.su is reachable."""
+    settings = load_settings()
+    async with HptSuClient(settings) as client:
+        try:
+            # Cheap call: list one document — exercises auth and routing.
+            await client.list_documents(page=1, page_size=1)
+        except HptSuApiError as exc:
+            # 401/403 means our key is bad; 5xx means upstream is down.
+            if exc.status_code in (401, 403):
+                return JSONResponse(
+                    {"status": "error", "detail": "upstream auth failed"},
+                    status_code=503,
+                )
+            return JSONResponse(
+                {"status": "error", "detail": f"upstream {exc.status_code}"},
+                status_code=503,
+            )
+        except Exception as exc:
+            return JSONResponse(
+                {"status": "error", "detail": str(exc)},
+                status_code=503,
+            )
+    return JSONResponse({"status": "ready", "version": __version__})
 
 
 # ──── Resources ───────────────────────────────────────────────────────────
