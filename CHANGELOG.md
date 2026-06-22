@@ -56,6 +56,14 @@ the project adheres to [SemVer](https://semver.org/spec/v2.0.0.html).
   `search_zoets` / `search_zotts` / `search_zotch` / `search_sout`.
   MCP ещё не публиковался — legacy не поддерживаем, сразу чистая структура.
 
+### Breaking
+
+- Document identifier: UUID (`number_code`) **больше не возвращается** в API.
+  `get_document` / `list_document_files` / `download_document_file` теперь
+  работают по **slug** (URL-form of number — тот же что в site URL).
+  `get_document(slug, kind)` обязательно требует kind, т.к. slug не
+  гарантированно уникален между kinds.
+
 ## [0.1.0] — 2026-06-20
 
 ### Added

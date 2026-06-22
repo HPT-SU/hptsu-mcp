@@ -163,12 +163,18 @@ async def search_documents(
 @mcp.tool()
 async def get_document(
     ctx: Context,
-    document_id: str = Field(description="Document UUID (`number_code`)."),
+    slug: str = Field(description="Document slug — URL-form of the number (the same as in site URL)."),
+    kind: str = Field(
+        description="One of: otts, otch, zotts, zotch, sbkts, zoets, sout, cert, decl. "
+                    "Slug isn't globally unique between kinds, so kind is required.",
+    ),
 ) -> str:
-    """Fetch a single Document by its UUID."""
+    """Fetch a single Document by slug+kind."""
+    if kind not in REGISTRY_KINDS:
+        return f"Invalid kind={kind!r}. Allowed: {sorted(REGISTRY_KINDS)}."
     client = _get_client(ctx)
     try:
-        return _format(await client.get_document(document_id, token=_request_token(ctx)))
+        return _format(await client.get_document(slug, kind, token=_request_token(ctx)))
     except HptSuApiError as exc:
         return _err(exc)
 
@@ -485,7 +491,7 @@ async def fulltext_search(
 @mcp.tool()
 async def list_document_files(
     ctx: Context,
-    document_id: str = Field(description="Document UUID (number_code from search)."),
+    document_slug: str = Field(description="Document slug (from search.slug field)."),
 ) -> str:
     """List the files attached to a document.
 
@@ -498,7 +504,7 @@ async def list_document_files(
     client = _get_client(ctx)
     try:
         return _format(await client.list_document_files(
-            document_id, token=_request_token(ctx)))
+            document_slug, token=_request_token(ctx)))
     except HptSuApiError as exc:
         return _err(exc)
 

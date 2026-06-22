@@ -136,9 +136,15 @@ class HptSuClient:
         token = filters.pop("token", None)
         return await self._get("/docs/", params=filters, token=token)
 
-    async def get_document(self, doc_id: str, *, token: str | None = None) -> dict[str, Any]:
-        """Document by UUID (number_code) — `GET /docs/{id}/`."""
-        return await self._get(f"/docs/{doc_id}/", token=token)
+    async def get_document(self, slug: str, kind: str, *,
+                           token: str | None = None) -> dict[str, Any]:
+        """Document by slug — `GET /docs/{kind}/{slug}/`.
+
+        Slug — URL-form of document number (тот же что в site URL).
+        `kind` обязателен: slug не уникален между kinds (например, два
+        сертификата + одна декларация могут иметь одинаковый «numeric» slug).
+        """
+        return await self._get(f"/docs/{kind}/{slug}/", token=token)
 
     async def list_certificates(self, **filters: Any) -> dict[str, Any]:
         """Conformity certificates — `GET /docs/cert/`."""
@@ -175,14 +181,14 @@ class HptSuClient:
         token = filters.pop("token", None)
         return await self._get("/docs/fulltext/", params={"q": q, **filters}, token=token)
 
-    async def list_document_files(self, document_id: str,
+    async def list_document_files(self, document_slug: str,
                                   *, token: str | None = None) -> list[dict[str, Any]]:
-        """Список файлов документа — `GET /docs/{document_uuid}/files/`.
+        """Список файлов документа — `GET /docs/{document_slug}/files/`.
 
-        Используется для resolve Document UUID → набор DocumentFile UIDs
+        Используется для resolve Document slug → набор DocumentFile UIDs
         перед скачиванием через `download_document_file(file_uid)`.
         """
-        return await self._get(f"/docs/{document_id}/files/", token=token)
+        return await self._get(f"/docs/{document_slug}/files/", token=token)
 
     async def download_document_file(self, file_uid: str,
                                      *, token: str | None = None) -> dict[str, Any]:
