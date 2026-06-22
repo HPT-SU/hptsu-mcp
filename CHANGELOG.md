@@ -8,6 +8,18 @@ the project adheres to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Per-kind search tools**: `search_otts`, `search_otch`, `search_zotts`,
+  `search_zotch`, `search_sbkts`, `search_zoets`, `search_sout` — заменяют
+  обобщённые `search_type_approvals(kind=...)` / `search_safety_reports(kind=...)`.
+  Каждый kind теперь имеет полный набор параметров: spec-фильтры
+  (`category`, `eco_class`, `wheel_formula`, `axis_count`, `issuer`),
+  для sbkts/zoets — VIN substring/exact + `engine`/`year`/`motor`/`motor_power` +
+  `date_from`/`date_to`.
+- `search_certificates` / `search_declarations` расширены: `applicant_inn`
+  (exact), `manufacturer`, `regulations` (ТР ТС / ТР ЕАЭС code),
+  `product` (product_full_name icontains), `scheme` для decl.
+- `fulltext_search`: расширен с otts на все 4 type-approval kinds
+  (otts/otch/zotts/zotch). Опциональный `kind` параметр ограничивает один из.
 - 9 new MCP tools: `search_by_vin`, `fulltext_search` (paid), `download_document_file` (paid),
   `list_document_files`, `list_brands`, `list_vehicle_models`, `list_test_labs`,
   `list_certification_bodies`, `list_tnved_codes`.
@@ -25,6 +37,10 @@ the project adheres to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- `search_by_vin`: убран per-kind подписочный гейт — VIN-поиск открыт во
+  всех 6 car-kinds (anon → conversion funnel к покупке документа).
+- `hptsu://about` resource: обновлён список tools (per-kind), новая
+  auth-схема, новые endpoints.
 - Auth scheme: `X-API-Key: <public_id>:<secret>` (was `Authorization: Bearer`)
   to match `td_billing.api.auth.ApiKeyAuthentication`.
 - `download_document_file` now accepts `file_uid` (was `document_id`); pair it
@@ -32,6 +48,13 @@ the project adheres to [SemVer](https://semver.org/spec/v2.0.0.html).
 - `search_by_vin`: minimum VIN length lowered from 10 to 5 chars (matches upstream).
 - All `next`/`previous` pagination URLs returned by API now use the public host
   (`https://staging.example/...`) instead of the container address (`http://web-hpt-su:8000/...`).
+
+### Removed
+
+- `search_type_approvals(kind=otts|otch)` → используйте `search_otts` / `search_otch`.
+- `search_safety_reports(kind=...)` → используйте `search_sbkts` /
+  `search_zoets` / `search_zotts` / `search_zotch` / `search_sout`.
+  MCP ещё не публиковался — legacy не поддерживаем, сразу чистая структура.
 
 ## [0.1.0] — 2026-06-20
 

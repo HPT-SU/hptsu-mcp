@@ -177,11 +177,13 @@ async def get_document(
 async def search_certificates(
     ctx: Context,
     number: str | None = Field(default=None, description="Certificate number, full or partial."),
-    applicant: str | None = Field(default=None, description="Applicant / manufacturer name."),
+    applicant: str | None = Field(default=None, description="Applicant name (icontains)."),
+    applicant_inn: str | None = Field(default=None, description="Applicant INN (exact match)."),
+    manufacturer: str | None = Field(default=None, description="Manufacturer name (icontains)."),
+    regulations: str | None = Field(default=None, description="Technical regulation code (e.g. 'ТР ТС 018/2011')."),
+    product: str | None = Field(default=None, description="Product full name (icontains)."),
     status: str | None = Field(default=None, description="Certificate status code."),
     scheme: str | None = Field(default=None, description="Certification scheme — '1с'…'9с'."),
-    code: str | None = Field(default=None, description="TN VED EAEU / OKPD2 classifier code."),
-    has_doc: bool | None = Field(default=None, description="Only entries with attached files."),
     page: int = Field(default=1, ge=1, description="1-based page index."),
     page_size: int = Field(default=20, ge=1, le=PAGE_SIZE_MAX, description="Rows per page (max 50)."),
 ) -> str:
@@ -189,8 +191,10 @@ async def search_certificates(
     client = _get_client(ctx)
     try:
         data = await client.list_certificates(
-            number=number, applicant=applicant, status=status, scheme=scheme,
-            code=code, has_doc=has_doc, page=page, page_size=page_size,
+            number=number, applicant=applicant, applicant_inn=applicant_inn,
+            manufacturer=manufacturer, regulations=regulations, product=product,
+            status=status, scheme=scheme,
+            page=page, page_size=page_size,
             token=_request_token(ctx),
         )
     except HptSuApiError as exc:
@@ -202,10 +206,13 @@ async def search_certificates(
 async def search_declarations(
     ctx: Context,
     number: str | None = Field(default=None, description="Declaration number, full or partial."),
-    applicant: str | None = Field(default=None, description="Applicant / manufacturer name."),
+    applicant: str | None = Field(default=None, description="Applicant name (icontains)."),
+    applicant_inn: str | None = Field(default=None, description="Applicant INN (exact match)."),
+    manufacturer: str | None = Field(default=None, description="Manufacturer name (icontains)."),
+    regulations: str | None = Field(default=None, description="Technical regulation code (e.g. 'ТР ТС 018/2011')."),
+    product: str | None = Field(default=None, description="Product full name (icontains)."),
     status: str | None = Field(default=None, description="Declaration status code."),
-    code: str | None = Field(default=None, description="TN VED EAEU classifier code."),
-    has_doc: bool | None = Field(default=None, description="Only entries with attached files."),
+    scheme: str | None = Field(default=None, description="Declaration scheme — '1д'…'6д'."),
     page: int = Field(default=1, ge=1, description="1-based page index."),
     page_size: int = Field(default=20, ge=1, le=PAGE_SIZE_MAX, description="Rows per page (max 50)."),
 ) -> str:
@@ -213,8 +220,10 @@ async def search_declarations(
     client = _get_client(ctx)
     try:
         data = await client.list_declarations(
-            number=number, applicant=applicant, status=status, code=code,
-            has_doc=has_doc, page=page, page_size=page_size,
+            number=number, applicant=applicant, applicant_inn=applicant_inn,
+            manufacturer=manufacturer, regulations=regulations, product=product,
+            status=status, scheme=scheme,
+            page=page, page_size=page_size,
             token=_request_token(ctx),
         )
     except HptSuApiError as exc:
@@ -222,67 +231,215 @@ async def search_declarations(
     return _format(data)
 
 
-@mcp.tool()
-async def search_type_approvals(
-    ctx: Context,
-    kind: str = Field(default="otts", description="'otts' (vehicle) or 'otch' (chassis)."),
-    number: str | None = Field(default=None, description="Document number, full or partial."),
-    applicant: str | None = Field(default=None, description="Holder / manufacturer name."),
-    brand: str | None = Field(default=None, description="Vehicle brand."),
-    model: str | None = Field(default=None, description="Vehicle model."),
-    year: int | None = Field(default=None, description="Issue year (YYYY)."),
-    page: int = Field(default=1, ge=1, description="1-based page index."),
-    page_size: int = Field(default=20, ge=1, le=PAGE_SIZE_MAX, description="Rows per page (max 50)."),
-) -> str:
-    """Vehicle (ОТТС) or chassis (ОТШ) type approvals (TR CU 018)."""
-    if kind not in {"otts", "otch"}:
-        return f"Invalid kind={kind!r}. Use one of: otts, otch."
+async def _search_kind(ctx: Context, kind: str, *, page: int, page_size: int, **kw) -> str:
+    """Shared body for per-kind search tools."""
     client = _get_client(ctx)
     try:
         data = await client.list_by_kind(
-            kind, number=number, applicant=applicant, brand=brand, model=model,
-            year=year, page=page, page_size=page_size, token=_request_token(ctx),
-        )
-    except HptSuApiError as exc:
-        return _err(exc)
-    return _format(data)
-
-
-@mcp.tool()
-async def search_safety_reports(
-    ctx: Context,
-    kind: str = Field(description="One of: sbkts, sout, zoets, zotch, zotts."),
-    number: str | None = Field(default=None, description="Document number."),
-    applicant: str | None = Field(default=None, description="Applicant / employer name."),
-    page: int = Field(default=1, ge=1, description="1-based page index."),
-    page_size: int = Field(default=20, ge=1, le=PAGE_SIZE_MAX, description="Rows per page (max 50)."),
-) -> str:
-    """Search СБКТС / СУТ / ЗО* feeds. For ОТТС/ОТШ use search_type_approvals."""
-    allowed = {"sbkts", "sout", "zoets", "zotch", "zotts"}
-    if kind not in allowed:
-        return f"Invalid kind={kind!r}. Allowed: {sorted(allowed)}."
-    client = _get_client(ctx)
-    try:
-        data = await client.list_by_kind(
-            kind, number=number, applicant=applicant, page=page, page_size=page_size,
+            kind, page=page, page_size=page_size,
             token=_request_token(ctx),
+            **{k: v for k, v in kw.items() if v is not None},
         )
     except HptSuApiError as exc:
         return _err(exc)
     return _format(data)
+
+
+@mcp.tool()
+async def search_otts(
+    ctx: Context,
+    number: str | None = Field(default=None, description="ОТТС number, full or partial."),
+    vin: str | None = Field(default=None, description="VIN substring (5-17 chars) — backend autoroute substring/DAWG."),
+    brand: str | None = Field(default=None, description="Vehicle brand (e.g. 'Toyota')."),
+    type: str | None = Field(default=None, description="Vehicle type / model (icontains)."),
+    comm_name: str | None = Field(default=None, description="Commercial name (icontains)."),
+    chassis: str | None = Field(default=None, description="Chassis identifier (icontains)."),
+    mods: str | None = Field(default=None, description="Modifications (icontains)."),
+    category: str | None = Field(default=None, description="Vehicle category (M1, N2, L3, …)."),
+    eco_class: str | None = Field(default=None, description="Ecological class (Euro 5, etc.)."),
+    wheel_formula: str | None = Field(default=None, description="Wheel formula (4x2, 6x4, …)."),
+    axis_count: int | None = Field(default=None, description="Number of axles."),
+    issuer: str | None = Field(default=None, description="Certification body id (см. list_certification_bodies)."),
+    page: int = Field(default=1, ge=1, description="1-based page index."),
+    page_size: int = Field(default=20, ge=1, le=PAGE_SIZE_MAX, description="Rows per page (max 50)."),
+) -> str:
+    """Search ОТТС (vehicle type approvals, ТР ТС 018/2011)."""
+    return await _search_kind(
+        ctx, "otts", page=page, page_size=page_size,
+        number=number, vin=vin, brand=brand, type=type, comm_name=comm_name,
+        chassis=chassis, mods=mods,
+        category=category, eco_class=eco_class,
+        wheel_formula=wheel_formula, axis_count=axis_count, issuer=issuer,
+    )
+
+
+@mcp.tool()
+async def search_otch(
+    ctx: Context,
+    number: str | None = Field(default=None, description="ОТШ number, full or partial."),
+    vin: str | None = Field(default=None, description="VIN substring (5-17 chars)."),
+    brand: str | None = Field(default=None, description="Brand."),
+    type: str | None = Field(default=None, description="Type / model."),
+    comm_name: str | None = Field(default=None, description="Commercial name."),
+    category: str | None = Field(default=None, description="Vehicle category."),
+    eco_class: str | None = Field(default=None, description="Ecological class."),
+    wheel_formula: str | None = Field(default=None, description="Wheel formula."),
+    axis_count: int | None = Field(default=None, description="Number of axles."),
+    issuer: str | None = Field(default=None, description="Certification body id."),
+    page: int = Field(default=1, ge=1, description="1-based page index."),
+    page_size: int = Field(default=20, ge=1, le=PAGE_SIZE_MAX, description="Rows per page (max 50)."),
+) -> str:
+    """Search ОТШ (chassis type approvals)."""
+    return await _search_kind(
+        ctx, "otch", page=page, page_size=page_size,
+        number=number, vin=vin, brand=brand, type=type, comm_name=comm_name,
+        category=category, eco_class=eco_class,
+        wheel_formula=wheel_formula, axis_count=axis_count, issuer=issuer,
+    )
+
+
+@mcp.tool()
+async def search_zotts(
+    ctx: Context,
+    number: str | None = Field(default=None, description="ЗОТТС number."),
+    vin: str | None = Field(default=None, description="VIN substring."),
+    brand: str | None = Field(default=None, description="Brand."),
+    type: str | None = Field(default=None, description="Type."),
+    category: str | None = Field(default=None, description="Vehicle category."),
+    eco_class: str | None = Field(default=None, description="Ecological class."),
+    wheel_formula: str | None = Field(default=None, description="Wheel formula."),
+    axis_count: int | None = Field(default=None, description="Number of axles."),
+    issuer: str | None = Field(default=None, description="Certification body id."),
+    page: int = Field(default=1, ge=1, description="1-based page index."),
+    page_size: int = Field(default=20, ge=1, le=PAGE_SIZE_MAX, description="Rows per page (max 50)."),
+) -> str:
+    """Search ЗОТТС (vehicle conformity assessment conclusion)."""
+    return await _search_kind(
+        ctx, "zotts", page=page, page_size=page_size,
+        number=number, vin=vin, brand=brand, type=type,
+        category=category, eco_class=eco_class,
+        wheel_formula=wheel_formula, axis_count=axis_count, issuer=issuer,
+    )
+
+
+@mcp.tool()
+async def search_zotch(
+    ctx: Context,
+    number: str | None = Field(default=None, description="ЗОТШ number."),
+    vin: str | None = Field(default=None, description="VIN substring."),
+    brand: str | None = Field(default=None, description="Brand."),
+    type: str | None = Field(default=None, description="Type."),
+    category: str | None = Field(default=None, description="Vehicle category."),
+    eco_class: str | None = Field(default=None, description="Ecological class."),
+    wheel_formula: str | None = Field(default=None, description="Wheel formula."),
+    axis_count: int | None = Field(default=None, description="Number of axles."),
+    issuer: str | None = Field(default=None, description="Certification body id."),
+    page: int = Field(default=1, ge=1, description="1-based page index."),
+    page_size: int = Field(default=20, ge=1, le=PAGE_SIZE_MAX, description="Rows per page (max 50)."),
+) -> str:
+    """Search ЗОТШ (chassis conformity assessment conclusion)."""
+    return await _search_kind(
+        ctx, "zotch", page=page, page_size=page_size,
+        number=number, vin=vin, brand=brand, type=type,
+        category=category, eco_class=eco_class,
+        wheel_formula=wheel_formula, axis_count=axis_count, issuer=issuer,
+    )
+
+
+@mcp.tool()
+async def search_sbkts(
+    ctx: Context,
+    number: str | None = Field(default=None, description="СБКТС number."),
+    vin: str | None = Field(default=None, description="VIN (10-17 chars; substring/exact)."),
+    brand: str | None = Field(default=None, description="Brand."),
+    type: str | None = Field(default=None, description="Type."),
+    comm_name: str | None = Field(default=None, description="Commercial name."),
+    engine: str | None = Field(default=None, description="ICE engine model (icontains)."),
+    year: int | None = Field(default=None, description="Manufacture year (YYYY)."),
+    motor: str | None = Field(default=None, description="Electric motor model (icontains)."),
+    motor_power: int | None = Field(default=None, description="Motor power (kW)."),
+    category: str | None = Field(default=None, description="Vehicle category."),
+    eco_class: str | None = Field(default=None, description="Ecological class."),
+    wheel_formula: str | None = Field(default=None, description="Wheel formula."),
+    axis_count: int | None = Field(default=None, description="Number of axles."),
+    issuer: str | None = Field(default=None, description="Testing lab id (см. list_test_labs)."),
+    date_from: str | None = Field(default=None, description="Issue date from (YYYY-MM-DD)."),
+    date_to: str | None = Field(default=None, description="Issue date to (YYYY-MM-DD)."),
+    page: int = Field(default=1, ge=1, description="1-based page index."),
+    page_size: int = Field(default=20, ge=1, le=PAGE_SIZE_MAX, description="Rows per page (max 50)."),
+) -> str:
+    """Search СБКТС (vehicle safety certificate)."""
+    return await _search_kind(
+        ctx, "sbkts", page=page, page_size=page_size,
+        number=number, vin=vin, brand=brand, type=type, comm_name=comm_name,
+        engine=engine, year=year, motor=motor, motor_power=motor_power,
+        category=category, eco_class=eco_class,
+        wheel_formula=wheel_formula, axis_count=axis_count, issuer=issuer,
+        date_from=date_from, date_to=date_to,
+    )
+
+
+@mcp.tool()
+async def search_zoets(
+    ctx: Context,
+    number: str | None = Field(default=None, description="ЗОЕТС number."),
+    vin: str | None = Field(default=None, description="VIN (10-17 chars)."),
+    brand: str | None = Field(default=None, description="Brand."),
+    type: str | None = Field(default=None, description="Type."),
+    comm_name: str | None = Field(default=None, description="Commercial name."),
+    engine: str | None = Field(default=None, description="ICE engine model."),
+    year: int | None = Field(default=None, description="Manufacture year."),
+    motor: str | None = Field(default=None, description="Electric motor model."),
+    motor_power: int | None = Field(default=None, description="Motor power (kW)."),
+    category: str | None = Field(default=None, description="Vehicle category."),
+    eco_class: str | None = Field(default=None, description="Ecological class."),
+    wheel_formula: str | None = Field(default=None, description="Wheel formula."),
+    axis_count: int | None = Field(default=None, description="Number of axles."),
+    issuer: str | None = Field(default=None, description="Testing lab id."),
+    date_from: str | None = Field(default=None, description="Issue date from (YYYY-MM-DD)."),
+    date_to: str | None = Field(default=None, description="Issue date to (YYYY-MM-DD)."),
+    page: int = Field(default=1, ge=1, description="1-based page index."),
+    page_size: int = Field(default=20, ge=1, le=PAGE_SIZE_MAX, description="Rows per page (max 50)."),
+) -> str:
+    """Search ЗОЕТС (vehicle technical expertise conclusion)."""
+    return await _search_kind(
+        ctx, "zoets", page=page, page_size=page_size,
+        number=number, vin=vin, brand=brand, type=type, comm_name=comm_name,
+        engine=engine, year=year, motor=motor, motor_power=motor_power,
+        category=category, eco_class=eco_class,
+        wheel_formula=wheel_formula, axis_count=axis_count, issuer=issuer,
+        date_from=date_from, date_to=date_to,
+    )
+
+
+@mcp.tool()
+async def search_sout(
+    ctx: Context,
+    number: str | None = Field(default=None, description="СУТ number."),
+    brand: str | None = Field(default=None, description="Brand."),
+    type: str | None = Field(default=None, description="Type."),
+    page: int = Field(default=1, ge=1, description="1-based page index."),
+    page_size: int = Field(default=20, ge=1, le=PAGE_SIZE_MAX, description="Rows per page (max 50)."),
+) -> str:
+    """Search СУТ (vehicle type notification — small dataset, only basic fields)."""
+    return await _search_kind(
+        ctx, "sout", page=page, page_size=page_size,
+        number=number, brand=brand, type=type,
+    )
 
 
 @mcp.tool()
 async def search_by_vin(
     ctx: Context,
-    vin: str = Field(description="17-character VIN (Vehicle Identification Number)."),
+    vin: str = Field(description="VIN substring or full code (5-17 chars)."),
 ) -> str:
-    """Find every hpt.su document tied to a given VIN — aggregated across
-    ОТТС / ОТШ / СБКТС / ЗОЕТС / ЗОТТС.
+    """Aggregated search by VIN across all car-kinds (ОТТС/ОТШ/ЗОТТС/ЗОТШ/
+    СБКТС/ЗОЕТС). Open for any active API key — no subscription required.
 
-    Requires the `/docs/by_vin/` endpoint on hpt.su (planned — currently in
-    integration backlog, see integration-hpt-su.md §5). Will return 'Not yet
-    available' until upstream lands.
+    Returns substring matches via UNION across kind-tables sorted by
+    `issue_date DESC`. For exact full-VIN match within a single kind,
+    use the per-kind tool (search_otts/search_sbkts/…) — they autoroute
+    substring↔DAWG by VIN validity.
     """
     if not (5 <= len(vin) <= 17):
         return f"Invalid VIN length: {len(vin)} chars (expected 5-17)."
@@ -296,14 +453,26 @@ async def search_by_vin(
 @mcp.tool()
 async def fulltext_search(
     ctx: Context,
-    query: str = Field(description="Free-text query (Russian or English)."),
-    kind: str | None = Field(default=None, description="Filter by registry kind (optional)."),
+    query: str = Field(description="Free-text query (Russian, tsquery-syntax allowed)."),
+    kind: str | None = Field(
+        default=None,
+        description="Filter by registry kind. One of: otts, otch, zotts, zotch. "
+                    "Default: search across all 4 type-approval kinds.",
+    ),
     page: int = Field(default=1, ge=1, description="1-based page index."),
     page_size: int = Field(default=20, ge=1, le=PAGE_SIZE_MAX, description="Rows per page (max 50)."),
 ) -> str:
-    """Full-text search inside PDF bodies. **Premium feature** — requires a
-    paid MCP key with `use_fulltext` enabled.
+    """Full-text search inside type-approval document bodies (PDF text).
+
+    Covers ОТТС / ОТШ / ЗОТТС / ЗОТШ — kinds where `Document.fulltext` index
+    is populated. СБКТС / ЗОЕТС / СУТ / cert / decl don't have fulltext
+    index and are not searchable here.
+
+    **Premium feature** — requires a paid MCP key with `use_fulltext` +
+    subscription on at least one type-approval kind.
     """
+    if kind and kind not in ("otts", "otch", "zotts", "zotch"):
+        return f"Invalid kind={kind!r}. Allowed: otts, otch, zotts, zotch (or omit for all)."
     client = _get_client(ctx)
     try:
         data = await client.fulltext_search(query, kind=kind, page=page, page_size=page_size,
@@ -523,12 +692,21 @@ async def readyz(_request: Request) -> JSONResponse:
 def about_registry() -> str:
     return (
         "hpt.su — registry of Russian and EAEU vehicle compliance documents.\n"
-        "Free MCP tier: 50 req/day at https://hpt.su/cabinet/mcp/.\n"
+        "Free MCP tier: 50 req/day at https://hpt.su/user/mcp/.\n"
         "Paid tier: 10 000 req/day + full-text + downloads, https://hpt.su/pricing/.\n\n"
         "Registries:\n"
         + "\n".join(f"  • {kind} — {title}" for kind, title in REGISTRY_KINDS.items())
-        + "\n\nAPI base: https://hpt.su/api/v1/   Auth: Bearer ApiKey (MCP scope).\n"
-        "Schema: https://hpt.su/api/v1/schema/\n"
+        + "\n\nAPI base: https://hpt.su/api/v1/\n"
+        "Auth: X-API-Key: <public_id>:<secret> (issued at /user/mcp/),\n"
+        "      or OAuth2 Bearer (DCR via /.well-known/oauth-authorization-server).\n"
+        "Schema: https://hpt.su/api/v1/schema/\n\n"
+        "Tools by kind: search_certificates / search_declarations / search_otts /\n"
+        "  search_otch / search_zotts / search_zotch / search_sbkts / search_zoets /\n"
+        "  search_sout. Plus search_documents (cross-kind by number), search_by_vin\n"
+        "  (cross-kind VIN), fulltext_search (otts/otch/zotts/zotch, paid).\n"
+        "NSI lookups: list_brands / list_vehicle_models / list_test_labs /\n"
+        "  list_certification_bodies / list_tnved_codes.\n"
+        "Files: list_document_files (free) / download_document_file (paid).\n"
     )
 
 
