@@ -6,6 +6,33 @@ the project adheres to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- 9 new MCP tools: `search_by_vin`, `fulltext_search` (paid), `download_document_file` (paid),
+  `list_document_files`, `list_brands`, `list_vehicle_models`, `list_test_labs`,
+  `list_certification_bodies`, `list_tnved_codes`.
+- `X-MCP-Client` attribution: client name+version extracted from MCP `InitializeParams`
+  and forwarded to upstream API.
+- Per-request token forwarding for hosted (streamable-HTTP) mode: incoming
+  `Authorization: Bearer` is preserved as Bearer; `X-API-Key` is passed through as is.
+- HTTP transport `host` / `port` / `allowed_hosts` configurable via env
+  (`HPTSU_HOST=0.0.0.0`, `HPTSU_ALLOWED_HOSTS=mcp.hpt.su,mcp.hpt.su:*` for hosted).
+- `/healthz` and `/readyz` probes (latter pings upstream without auth, expects 401).
+- Multi-stage Dockerfile with non-root user, HEALTHCHECK.
+- `deploy/` directory with docker-compose example + nginx vhost.
+- `docs/CLIENT_CONFIGS.md`: snippets for Claude Desktop, Cursor, Cline, Continue,
+  Goose, Cherry Studio, 5ire, LM Studio, VS Code Copilot, Zed.
+
+### Changed
+
+- Auth scheme: `X-API-Key: <public_id>:<secret>` (was `Authorization: Bearer`)
+  to match `td_billing.api.auth.ApiKeyAuthentication`.
+- `download_document_file` now accepts `file_uid` (was `document_id`); pair it
+  with `list_document_files` to enumerate file UIDs of a document.
+- `search_by_vin`: minimum VIN length lowered from 10 to 5 chars (matches upstream).
+- All `next`/`previous` pagination URLs returned by API now use the public host
+  (`https://staging.example/...`) instead of the container address (`http://web-hpt-su:8000/...`).
+
 ## [0.1.0] — 2026-06-20
 
 ### Added
