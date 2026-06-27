@@ -653,6 +653,30 @@ async def healthz(_request: Request) -> JSONResponse:
     return JSONResponse({"status": "ok", "version": __version__})
 
 
+# MED#461: дешёвый in-process token-bucket для /readyz, чтобы внешние
+# проверки не могли заставить нас бить upstream по 1k rps. Лимит ~ 30/min.
+_READYZ_BUCKET = {"tokens": 30.0, "ts": 0.0}
+_READYZ_RATE_PER_SEC = 0.5  # 30/min
+_READYZ_CAPACITY = 30.0
+
+
+def _readyz_take_token() -> bool:
+    import time as _t
+    now = _t.monotonic()
+    if _READYZ_BUCKET["ts"] == 0.0:
+        _READYZ_BUCKET["ts"] = now
+    elapsed = now - _READYZ_BUCKET["ts"]
+    _READYZ_BUCKET["ts"] = now
+    _READYZ_BUCKET["tokens"] = min(
+        _READYZ_CAPACITY,
+        _READYZ_BUCKET["tokens"] + elapsed * _READYZ_RATE_PER_SEC,
+    )
+    if _READYZ_BUCKET["tokens"] >= 1.0:
+        _READYZ_BUCKET["tokens"] -= 1.0
+        return True
+    return False
+
+
 @mcp.custom_route("/readyz", methods=["GET"], include_in_schema=False)
 async def readyz(_request: Request) -> JSONResponse:
     """Readiness probe — проверяет, что upstream hpt.su отвечает.
@@ -666,6 +690,8 @@ async def readyz(_request: Request) -> JSONResponse:
 
     Любой 5xx / connection-error / timeout → 503 «not ready».
     """
+    if not _readyz_take_token():
+        return JSONResponse({"status": "throttled"}, status_code=429)
     settings = load_settings()
     # Стираем default api_key чтобы probe был без auth (deterministic).
     settings = settings.model_copy(update={"api_key": None})
