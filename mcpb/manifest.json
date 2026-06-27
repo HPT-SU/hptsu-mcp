@@ -30,8 +30,8 @@
     "type": "python",
     "entry_point": "src/hptsu_mcp/server.py",
     "mcp_config": {
-      "command": "python",
-      "args": ["-m", "hptsu_mcp.server"],
+      "command": "hptsu-mcp",
+      "args": [],
       "env": {
         "HPTSU_API_KEY": "${user_config.api_key}",
         "HPTSU_BASE_URL": "${user_config.base_url}"

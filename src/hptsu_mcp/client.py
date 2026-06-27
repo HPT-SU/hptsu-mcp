@@ -73,11 +73,22 @@ class HptSuClient:
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        self._default_token = settings.api_key
+        # LOW#621: SecretStr.get_secret_value() — иначе при logging settings объект
+        # отдаёт SecretStr('**********'), а тут нужен голый строковой токен.
+        self._default_token = (
+            settings.api_key.get_secret_value() if settings.api_key else None
+        )
         self._mcp_client_tag: str | None = None
+        # LOW#617: бесконечный пул keep-alive утечёт коннекты в hosted-режиме
+        # при ALB-style клиентах, бьющих по mcp.hpt.su с одного IP.
         self._client = httpx.AsyncClient(
             base_url=settings.base_url.rstrip("/"),
             timeout=settings.timeout,
+            limits=httpx.Limits(
+                max_keepalive_connections=20,
+                max_connections=100,
+                keepalive_expiry=30.0,
+            ),
             headers={
                 "Accept": "application/json",
                 "User-Agent": settings.user_agent,

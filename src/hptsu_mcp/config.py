@@ -1,7 +1,7 @@
 """Конфиг через env. Все значения опциональны кроме API-ключа для prod-режима."""
 from __future__ import annotations
 
-from pydantic import Field
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -19,7 +19,9 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    api_key: str | None = Field(
+    # LOW#621: SecretStr — иначе __repr__/__str__/JSON-dump утекают токен
+    # в логи / sentry / отчёты об ошибках. Использовать через .get_secret_value().
+    api_key: SecretStr | None = Field(
         default=None,
         description=(
             "API key from hpt.su cabinet (https://hpt.su/user/mcp/). "
@@ -62,6 +64,20 @@ class Settings(BaseSettings):
             "`mcp.hpt.su,mcp.hpt.su:*`."
         ),
     )
+
+    # LOW#629: явный отказ от wildcard — `*` отключает защиту от DNS-rebinding
+    # и позволяет любому веб-сайту через user-agent атаковать локальный MCP.
+    @field_validator('allowed_hosts')
+    @classmethod
+    def _no_wildcard(cls, v: str) -> str:
+        hosts = {h.strip() for h in v.split(',') if h.strip()}
+        if '*' in hosts:
+            raise ValueError(
+                "HPTSU_ALLOWED_HOSTS='*' disables DNS-rebinding protection. "
+                "List actual hostnames (e.g. 'mcp.hpt.su,mcp.hpt.su:*') "
+                "or leave empty for localhost-only.",
+            )
+        return v
 
 
 def load_settings() -> Settings:
