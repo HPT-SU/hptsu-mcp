@@ -749,6 +749,11 @@ def main() -> None:
         level=os.getenv("HPTSU_LOG_LEVEL", "INFO"),
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
+    # MED#455: даже при HPTSU_LOG_LEVEL=DEBUG не светим httpx Authorization
+    # в plaintext (httpx.client логирует полный request с headers на DEBUG).
+    # Поднимаем уровень httpx до INFO, чтоб не показывал заголовки.
+    logging.getLogger("httpx").setLevel(logging.INFO)
+    logging.getLogger("httpcore").setLevel(logging.INFO)
     transport = os.getenv("HPTSU_TRANSPORT", "stdio").lower()
     if transport in {"http", "streamable-http", "streamable_http"}:
         _configure_http_binding()
