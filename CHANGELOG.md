@@ -47,7 +47,7 @@ the project adheres to [SemVer](https://semver.org/spec/v2.0.0.html).
   with `list_document_files` to enumerate file UIDs of a document.
 - `search_by_vin`: minimum VIN length lowered from 10 to 5 chars (matches upstream).
 - All `next`/`previous` pagination URLs returned by API now use the public host
-  (`https://staging.example/...`) instead of the container address (`http://web-hpt-su:8000/...`).
+  (`https://hpt.su/...`) instead of the container address (`http://web-hpt-su:8000/...`).
 
 ### Removed
 

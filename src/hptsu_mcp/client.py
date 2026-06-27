@@ -3,7 +3,7 @@
 Wraps the DRF endpoints documented at https://hpt.su/api/v1/docs/ (OpenAPI
 schema at /api/v1/schema/). All endpoints are read-only ViewSets that require
 Bearer ApiKey auth backed by an active API_TIER subscription, **or** a free
-MCP scope key obtained on https://hpt.su/cabinet/mcp/.
+MCP scope key obtained on https://hpt.su/user/mcp/.
 
 Some endpoints below are not yet live in hpt_su — see
 `docs/integration-hpt-su.md` (P1 §5-9). The MCP-server returns a polite

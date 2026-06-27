@@ -6,7 +6,7 @@ certificates, declarations, type-approval notifications СУТ and more).
 
 Authentication:
 
-* Free MCP scope key — issue at https://hpt.su/cabinet/mcp/, 50 requests/day.
+* Free MCP scope key — issue at https://hpt.su/user/mcp/, 50 requests/day.
 * Paid (`scope=MCP_PAID`) — 10 000 requests/day, includes full-text search
   and downloads.
 
@@ -69,7 +69,7 @@ mcp = FastMCP(
         "documents (https://hpt.su): type approvals (ОТТС/СБКТС/ОТШ), "
         "conformity certificates (ТР ТС/ТР ЕАЭС), declarations of conformity, "
         "type-approval notifications СУТ. Read-only. Free tier (50 req/day) "
-        "available at https://hpt.su/cabinet/mcp/. Paid tier (10 000 req/day) "
+        "available at https://hpt.su/user/mcp/. Paid tier (10 000 req/day) "
         "unlocks full-text search and file downloads."
     ),
     lifespan=_lifespan,
@@ -125,6 +125,8 @@ def _format(result: Any) -> str:
 
 
 def _err(exc: HptSuApiError) -> str:
+    # LOW#613: сырой upstream-detail может содержать stack-trace/PII при 5xx —
+    # для общих ошибок отдаём generic-message, full detail остаётся в лог.
     if exc.status_code == 402:
         return (
             f"Payment required ({exc.detail}). Upgrade your MCP key to the "
@@ -137,7 +139,10 @@ def _err(exc: HptSuApiError) -> str:
         )
     if exc.status_code == 404:
         return f"Not found: {exc.detail}"
-    return f"hpt.su API error {exc.status_code}: {exc.detail}"
+    log.warning("hpt.su upstream error %s: %s", exc.status_code, exc.detail)
+    if exc.status_code >= 500:
+        return f"hpt.su upstream is unavailable (HTTP {exc.status_code}). Try again later."
+    return f"hpt.su API error {exc.status_code}."
 
 
 # ──── Search & retrieval ────────────────────────────────────────────────

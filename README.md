@@ -45,13 +45,13 @@ Two tiers exist for MCP:
 
 | Tier | Throttle | Price | Where to get |
 |------|---------|-------|--------------|
-| **Free MCP** | 50 requests/day | Free, signup required | [hpt.su/cabinet/mcp/](https://hpt.su/cabinet/mcp/) |
+| **Free MCP** | 50 requests/day | Free, signup required | [hpt.su/user/mcp/](https://hpt.su/user/mcp/) |
 | **Paid MCP** | 10 000 requests/day, fulltext + downloads | See pricing | [hpt.su/pricing/](https://hpt.su/pricing/) |
 
 The free tier is plenty for demos and personal use. Upgrade unlocks `fulltext_search`, `download_document_file`, the VIN aggregator, and the higher daily limit.
 
 1. Create an account at [hpt.su/accounts/signup/](https://hpt.su/accounts/signup/).
-2. Click "Get free MCP key" in [hpt.su/cabinet/mcp/](https://hpt.su/cabinet/mcp/).
+2. Click "Get free MCP key" in [hpt.su/user/mcp/](https://hpt.su/user/mcp/).
 3. (Optional) Upgrade on [hpt.su/pricing/](https://hpt.su/pricing/).
 
 API documentation (Swagger UI): https://hpt.su/api/v1/docs/ · OpenAPI schema: https://hpt.su/api/v1/schema/
@@ -162,7 +162,7 @@ MIT — see [LICENSE](./LICENSE).
 
 - Source registry: **https://hpt.su**
 - MCP landing page: **https://hpt.su/mcp/**
-- MCP key cabinet: **https://hpt.su/cabinet/mcp/**
+- MCP key cabinet: **https://hpt.su/user/mcp/**
 - API documentation: **https://hpt.su/api/v1/docs/**
 - OpenAPI schema: **https://hpt.su/api/v1/schema/**
 - Public pricing: **https://hpt.su/pricing/**

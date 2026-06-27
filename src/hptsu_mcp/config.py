@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     api_key: str | None = Field(
         default=None,
         description=(
-            "API key from hpt.su cabinet (https://hpt.su/cabinet/mcp/). "
+            "API key from hpt.su cabinet (https://hpt.su/user/mcp/). "
             "Format: `<public_id>:<secret>`. Required for stdio transport; "
             "in streamable-http mode the key is extracted from the incoming "
             "Authorization header per-request."
