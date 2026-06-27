@@ -1,6 +1,6 @@
 [project]
 name = "hptsu-mcp"
-version = "0.1.0"
+version = "0.2.0"
 description = "MCP server for searching Russian/EAEU vehicle compliance documents on hpt.su — type approvals (ОТТС/СБКТС/ОТШ), conformity certificates, declarations, type-approval notifications (СУТ)."
 readme = "README.md"
 license = { text = "MIT" }
