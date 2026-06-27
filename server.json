@@ -1,7 +1,7 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
   "name": "su.hpt/hptsu-mcp",
-  "description": "Search the hpt.su database of Russian/EAEU vehicle compliance documents — type approvals (ОТТС/СБКТС/ОТШ), conformity certificates and declarations (ТР ТС/ТР ЕАЭС), type-approval notifications (СУТ). Read-only Bearer-auth client over the official https://hpt.su/api/v1/ REST API.",
+  "description": "Search the hpt.su database of Russian/EAEU vehicle compliance documents — type approvals (ОТТС/СБКТС/ОТШ), conformity certificates and declarations (ТР ТС/ТР ЕАЭС), type-approval notifications (СУТ). Read-only X-API-Key auth client over the official https://hpt.su/api/v1/ REST API.",
   "repository": {
     "url": "https://github.com/hpt-su/hptsu-mcp",
     "source": "github"
@@ -23,7 +23,7 @@
       "environmentVariables": [
         {
           "name": "HPTSU_API_KEY",
-          "description": "Bearer API key issued in the hpt.su cabinet (requires active API_TIER subscription).",
+          "description": "X-API-Key issued in the hpt.su cabinet (requires MCP_FREE or MCP_PAID scope).",
           "isRequired": true,
           "isSecret": true
         },

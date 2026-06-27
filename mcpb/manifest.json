@@ -4,7 +4,7 @@
   "version": "0.2.0",
   "display_name": "hpt.su — Russian/EAEU vehicle compliance docs",
   "description": "Search the hpt.su registry of Russian/EAEU vehicle compliance documents (type approvals ОТТС/СБКТС/ОТШ, conformity certificates, declarations, СУТ type-approval notifications).",
-  "long_description": "MCP server that connects any MCP-compatible AI assistant to https://hpt.su — an aggregated database of Russian Federation and Eurasian Economic Union vehicle compliance documents. Search vehicle type approvals (ОТТС, ОТШ), safety-of-design certificates (СБКТС), conformity certificates and declarations under TR CU / TR EAEU technical regulations, and type-approval notifications (СУТ). Requires a Bearer API key from a hpt.su account with an active API_TIER subscription.",
+  "long_description": "MCP server that connects any MCP-compatible AI assistant to https://hpt.su — an aggregated database of Russian Federation and Eurasian Economic Union vehicle compliance documents. Search vehicle type approvals (ОТТС, ОТШ), safety-of-design certificates (СБКТС), conformity certificates and declarations under TR CU / TR EAEU technical regulations, and type-approval notifications (СУТ). Requires a X-API-Key from a hpt.su account with an MCP_FREE or MCP_PAID scope.",
   "author": {
     "name": "hpt.su",
     "url": "https://hpt.su"
@@ -42,7 +42,7 @@
     "api_key": {
       "type": "string",
       "title": "hpt.su API key",
-      "description": "Bearer key from the hpt.su cabinet (requires active API_TIER subscription).",
+      "description": "X-API-Key from the hpt.su cabinet (requires MCP_FREE or MCP_PAID scope).",
       "sensitive": true,
       "required": true
     },
@@ -56,11 +56,25 @@
   },
   "tools": [
     { "name": "search_documents", "description": "Cross-registry search by document number." },
-    { "name": "get_document", "description": "Fetch a single Document by UUID." },
+    { "name": "get_document", "description": "Fetch a single Document by slug + kind." },
     { "name": "search_certificates", "description": "Conformity certificates with filters." },
     { "name": "search_declarations", "description": "Declarations of conformity." },
-    { "name": "search_type_approvals", "description": "Vehicle / chassis type approvals (ОТТС / ОТШ)." },
-    { "name": "search_safety_reports", "description": "СБКТС / СУТ / ЗОЕТС / ЗОТШ / ЗОТТС feeds." },
+    { "name": "search_otts", "description": "Vehicle type approvals (ОТТС)." },
+    { "name": "search_otch", "description": "Chassis type approvals (ОТШ)." },
+    { "name": "search_zotts", "description": "ЗОТТС — закрытые type approvals на ТС." },
+    { "name": "search_zotch", "description": "ЗОТШ — закрытые type approvals на шасси." },
+    { "name": "search_sbkts", "description": "СБКТС — safety-of-design certificates." },
+    { "name": "search_zoets", "description": "ЗОЕТС — заключения о соответствии ТС." },
+    { "name": "search_sout", "description": "СУТ — type-approval notifications." },
+    { "name": "search_by_vin", "description": "Cross-kind поиск документов по части VIN." },
+    { "name": "fulltext_search", "description": "Полнотекстовый поиск по type-approval kinds (требует подписки)." },
+    { "name": "list_document_files", "description": "Файлы документа по slug + kind." },
+    { "name": "download_document_file", "description": "Скачать файл документа по file_uid." },
+    { "name": "list_brands", "description": "Реестр брендов ТС." },
+    { "name": "list_vehicle_models", "description": "Модели ТС с фильтром по бренду." },
+    { "name": "list_test_labs", "description": "Аккредитованные испытательные лаборатории." },
+    { "name": "list_certification_bodies", "description": "Аккредитованные органы по сертификации." },
+    { "name": "list_tnved_codes", "description": "Коды ТН ВЭД ЕАЭС." },
     { "name": "list_registry_kinds", "description": "Enumerate registry kinds." }
   ],
   "compatibility": {

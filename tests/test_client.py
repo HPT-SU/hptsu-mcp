@@ -52,14 +52,16 @@ async def test_list_documents_passes_filters(settings: Settings) -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_document_uuid(settings: Settings) -> None:
-    uid = "550e8400-e29b-41d4-a716-446655440000"
+async def test_get_document_slug_kind(settings: Settings) -> None:
+    """HIGH#223: client.get_document(slug, kind) — UUID-only флоу удалён в 0.2.0."""
+    slug = "RU-C-RU-MTS-00001"
+    kind = "cert"
     async with HptSuClient(settings) as client, respx.mock(base_url=settings.base_url) as mock:
-        mock.get(f"/docs/{uid}/").mock(
-            return_value=httpx.Response(200, json={"id": uid, "kind": "cert"}),
+        mock.get(f"/docs/{kind}/{slug}/").mock(
+            return_value=httpx.Response(200, json={"slug": slug, "kind": kind}),
         )
-        data = await client.get_document(uid)
-        assert data["id"] == uid
+        data = await client.get_document(slug, kind=kind)
+        assert data["slug"] == slug
 
 
 @pytest.mark.asyncio

@@ -29,7 +29,7 @@ startCommand:
       hptsuApiKey:
         type: string
         title: hpt.su API key
-        description: Bearer key from the hpt.su cabinet (active API_TIER subscription required).
+        description: X-API-Key from the hpt.su cabinet (MCP_FREE or MCP_PAID scope required).
         format: password
       hptsuBaseUrl:
         type: string
