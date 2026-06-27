@@ -11,11 +11,38 @@ Some endpoints below are not yet live in hpt_su — see
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import httpx
 
 from .config import Settings
+
+
+# HIGH#216 path traversal: httpx.URL нормализует `../`, поэтому slug='../../admin'
+# в `f"/docs/{kind}/{slug}/"` превращался в /api/v1/admin/. Разрешённые символы
+# в slug/file_uid — буквы, цифры и `._-`. kind должен быть из закрытого списка.
+_SAFE_PATH_RE = re.compile(r'^[A-Za-z0-9._-]+$')
+_ALLOWED_KINDS = frozenset({
+    'otts', 'otch', 'zotts', 'zotch', 'zoets', 'sbkts', 'sout', 'cert', 'decl',
+})
+
+
+def _safe(part: str, label: str) -> str:
+    if not part or not _SAFE_PATH_RE.match(part):
+        raise ValueError(
+            f'{label} contains forbidden characters '
+            f'(allowed: [A-Za-z0-9._-]+).',
+        )
+    return part
+
+
+def _safe_kind(kind: str) -> str:
+    if kind not in _ALLOWED_KINDS:
+        raise ValueError(
+            f'Unknown kind {kind!r}. Allowed: {sorted(_ALLOWED_KINDS)}.',
+        )
+    return kind
 
 
 class HptSuApiError(RuntimeError):
@@ -144,7 +171,9 @@ class HptSuClient:
         `kind` обязателен: slug не уникален между kinds (например, два
         сертификата + одна декларация могут иметь одинаковый «numeric» slug).
         """
-        return await self._get(f"/docs/{kind}/{slug}/", token=token)
+        return await self._get(
+            f"/docs/{_safe_kind(kind)}/{_safe(slug, 'slug')}/", token=token,
+        )
 
     async def list_certificates(self, **filters: Any) -> dict[str, Any]:
         """Conformity certificates — `GET /docs/cert/`."""
@@ -159,7 +188,7 @@ class HptSuClient:
     async def list_by_kind(self, kind: str, **filters: Any) -> dict[str, Any]:
         """Per-kind list — `GET /docs/{kind}/`."""
         token = filters.pop("token", None)
-        return await self._get(f"/docs/{kind}/", params=filters, token=token)
+        return await self._get(f"/docs/{_safe_kind(kind)}/", params=filters, token=token)
 
     # ---------- planned endpoints (require P1 work on hpt_su) ----------
 
@@ -202,7 +231,9 @@ class HptSuClient:
         Требует активной подписки covering kind документа или DOC_PURCHASE.
         На free MCP вернёт 403 с upgrade-сообщением.
         """
-        return await self._post(f"/files/{file_uid}/download/", token=token)
+        return await self._post(
+            f"/files/{_safe(file_uid, 'file_uid')}/download/", token=token,
+        )
 
     # ---------- reference / NSI dictionaries ----------
 
