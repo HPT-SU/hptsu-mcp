@@ -132,10 +132,37 @@ def _format(result: Any) -> str:
 
 
 def _err(exc: HptSuApiError) -> str:
-    # LOW#613 + Recheck-LOW: сырой upstream-detail может содержать stack-trace/PII
-    # для любого кода (не только 5xx). 402/404 теперь тоже без detail в ответ
-    # LLM-клиенту — полный detail в server-side лог.
-    log.warning("hpt.su upstream error %s: %s", exc.status_code, exc.detail)
+    """Преобразует upstream-ошибку в LLM-сообщение.
+
+    Recheck-H5: бэк возвращает envelope `{code, message, upgrade_url?,
+    retry_after?}` — используем `code` для логики, `message` показываем
+    юзеру (он лаконичный, без stack-trace/PII).
+
+    Backward compat: для legacy-detail (старые версии бэка) используем
+    status_code → дефолт.
+    """
+    log.warning(
+        "hpt.su upstream error %s code=%s detail=%s",
+        exc.status_code, exc.code, exc.detail,
+    )
+
+    # Envelope code-based ветви — самые точные сообщения.
+    if exc.code == 'PAYMENT_REQUIRED':
+        url = exc.upgrade_url or 'https://hpt.su/pricing/'
+        return f"Payment required. {exc.detail} Upgrade at {url}."
+    if exc.code == 'RATE_LIMITED':
+        wait = f' Retry after {exc.retry_after}s.' if exc.retry_after else ''
+        return f"Rate limit reached.{wait} Upgrade at https://hpt.su/pricing/ for higher limits."
+    if exc.code == 'NOT_FOUND':
+        return "Not found."
+    if exc.code == 'UNAUTHORIZED':
+        return "Authentication failed — check your API key."
+    if exc.code == 'FORBIDDEN':
+        return f"Forbidden: {exc.detail}"
+    if exc.code == 'INVALID_INPUT':
+        return f"Invalid input: {exc.detail}"
+
+    # Fallback на status_code (legacy bridge для бэка до H5).
     if exc.status_code == 402:
         return (
             "Payment required. Upgrade your MCP key to the paid tier at "

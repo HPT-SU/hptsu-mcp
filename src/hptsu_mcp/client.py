@@ -58,12 +58,29 @@ def _safe_vin(vin: str) -> str:
 
 
 class HptSuApiError(RuntimeError):
-    """Raised when the hpt.su API returns a non-2xx response."""
+    """Raised when the hpt.su API returns a non-2xx response.
 
-    def __init__(self, status_code: int, detail: str) -> None:
+    Поддерживает canonical envelope формат `{code, message, upgrade_url,
+    retry_after, fields}` (Recheck-H5). Старый формат `{detail}` тоже
+    парсится — backward compat на время миграции.
+    """
+
+    def __init__(
+        self,
+        status_code: int,
+        detail: str,
+        *,
+        code: str | None = None,
+        upgrade_url: str | None = None,
+        retry_after: int | None = None,
+    ) -> None:
         super().__init__(f"hpt.su API {status_code}: {detail}")
         self.status_code = status_code
         self.detail = detail
+        # Canonical envelope-поля (могут быть None если бэк не вернул envelope).
+        self.code = code
+        self.upgrade_url = upgrade_url
+        self.retry_after = retry_after
 
 
 class HptSuClient:
@@ -150,28 +167,40 @@ class HptSuClient:
 
     # ---------- raw plumbing ----------
 
+    def _raise_for_status(self, resp: httpx.Response) -> None:
+        """Поднять HptSuApiError из envelope или legacy-detail."""
+        if resp.status_code < 400:
+            return
+        try:
+            body = resp.json()
+        except Exception:
+            body = resp.text
+        # Canonical envelope (Recheck-H5): {code, message, upgrade_url?, retry_after?}.
+        if isinstance(body, dict) and 'code' in body and 'message' in body:
+            raise HptSuApiError(
+                resp.status_code,
+                str(body.get('message', '')),
+                code=str(body['code']),
+                upgrade_url=body.get('upgrade_url'),
+                retry_after=body.get('retry_after'),
+            )
+        # Legacy DRF-format {detail: '...'}.
+        if isinstance(body, dict) and 'detail' in body:
+            raise HptSuApiError(resp.status_code, str(body['detail']))
+        raise HptSuApiError(resp.status_code, str(body))
+
     async def _get(self, path: str, *, params: dict[str, Any] | None = None,
                    token: str | None = None) -> Any:
         clean = {k: v for k, v in (params or {}).items() if v is not None and v != ""}
         resp = await self._client.get(path, params=clean, headers=self._build_headers(token))
-        if resp.status_code >= 400:
-            try:
-                detail = resp.json()
-            except Exception:
-                detail = resp.text
-            raise HptSuApiError(resp.status_code, str(detail))
+        self._raise_for_status(resp)
         return resp.json()
 
     async def _post(self, path: str, *, json: dict[str, Any] | None = None,
                     token: str | None = None) -> Any:
         resp = await self._client.post(path, json=json or {},
                                        headers=self._build_headers(token))
-        if resp.status_code >= 400:
-            try:
-                detail = resp.json()
-            except Exception:
-                detail = resp.text
-            raise HptSuApiError(resp.status_code, str(detail))
+        self._raise_for_status(resp)
         return resp.json()
 
     # ---------- public endpoints (live) ----------
