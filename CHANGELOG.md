@@ -6,6 +6,13 @@ the project adheres to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING**: `list_document_files` теперь требует обязательный `kind`
+  (как `get_document`) — slug не уникален между kinds, и без `kind` могли
+  вернуться файлы случайного документа. Upstream URL изменён:
+  `/api/v1/docs/<kind>/<slug>/files/` (был `/api/v1/docs/<slug>/files/`).
+
 ### Added
 
 - **Per-kind search tools**: `search_otts`, `search_otch`, `search_zotts`,

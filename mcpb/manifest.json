@@ -68,7 +68,7 @@
     { "name": "search_sout", "description": "СУТ — type-approval notifications." },
     { "name": "search_by_vin", "description": "Cross-kind поиск документов по части VIN." },
     { "name": "fulltext_search", "description": "Полнотекстовый поиск по type-approval kinds (требует подписки)." },
-    { "name": "list_document_files", "description": "Файлы документа по slug + kind." },
+    { "name": "list_document_files", "description": "Файлы документа по kind + slug (kind обязателен — slug не уникален между kinds)." },
     { "name": "download_document_file", "description": "Скачать файл документа по file_uid." },
     { "name": "list_brands", "description": "Реестр брендов ТС." },
     { "name": "list_vehicle_models", "description": "Модели ТС с фильтром по бренду." },

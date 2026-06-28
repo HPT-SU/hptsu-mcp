@@ -221,14 +221,20 @@ class HptSuClient:
         token = filters.pop("token", None)
         return await self._get("/docs/fulltext/", params={"q": q, **filters}, token=token)
 
-    async def list_document_files(self, document_slug: str,
+    async def list_document_files(self, document_slug: str, kind: str,
                                   *, token: str | None = None) -> list[dict[str, Any]]:
-        """Список файлов документа — `GET /docs/{document_slug}/files/`.
+        """Список файлов документа — `GET /docs/{kind}/{document_slug}/files/`.
 
         Используется для resolve Document slug → набор DocumentFile UIDs
         перед скачиванием через `download_document_file(file_uid)`.
+
+        `kind` обязателен: slug не уникален между kinds (тот же no_ws_slug
+        может быть и у сертификата, и у декларации). См. LOW#625.
         """
-        return await self._get(f"/docs/{document_slug}/files/", token=token)
+        return await self._get(
+            f"/docs/{_safe_kind(kind)}/{_safe(document_slug, 'document_slug')}/files/",
+            token=token,
+        )
 
     async def download_document_file(self, file_uid: str,
                                      *, token: str | None = None) -> dict[str, Any]:

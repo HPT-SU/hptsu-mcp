@@ -164,14 +164,14 @@ async def test_download_post(settings: Settings) -> None:
 
 @pytest.mark.asyncio
 async def test_list_document_files(settings: Settings) -> None:
-    doc_uid = "550e8400-e29b-41d4-a716-446655440000"
+    doc_slug = "otts-12345"
     async with HptSuClient(settings) as client, respx.mock(base_url=settings.base_url) as mock:
-        route = mock.get(f"/docs/{doc_uid}/files/").mock(
+        route = mock.get(f"/docs/otts/{doc_slug}/files/").mock(
             return_value=httpx.Response(200, json=[
                 {"file_uid": "f1", "file_name": "a.pdf", "kind": "otts"},
             ]),
         )
-        result = await client.list_document_files(doc_uid)
+        result = await client.list_document_files(doc_slug, "otts")
         assert route.called
         assert isinstance(result, list) and result[0]["file_uid"] == "f1"
 

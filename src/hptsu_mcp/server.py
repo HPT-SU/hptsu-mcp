@@ -497,6 +497,10 @@ async def fulltext_search(
 async def list_document_files(
     ctx: Context,
     document_slug: str = Field(description="Document slug (from search.slug field)."),
+    kind: str = Field(
+        description="One of: otts, otch, zotts, zotch, sbkts, zoets, sout, cert, decl. "
+                    "Slug isn't globally unique between kinds, so kind is required.",
+    ),
 ) -> str:
     """List the files attached to a document.
 
@@ -506,10 +510,12 @@ async def list_document_files(
     A document often has several PDFs (e.g. cleaned + original); use this
     tool to enumerate them and pick the right one before download.
     """
+    if kind not in REGISTRY_KINDS:
+        return f"Invalid kind={kind!r}. Allowed: {sorted(REGISTRY_KINDS)}."
     client = _get_client(ctx)
     try:
         return _format(await client.list_document_files(
-            document_slug, token=_request_token(ctx)))
+            document_slug, kind, token=_request_token(ctx)))
     except HptSuApiError as exc:
         return _err(exc)
 
