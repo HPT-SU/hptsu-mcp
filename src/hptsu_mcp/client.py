@@ -23,6 +23,10 @@ from .config import Settings
 # в `f"/docs/{kind}/{slug}/"` превращался в /api/v1/admin/. Разрешённые символы
 # в slug/file_uid — буквы, цифры и `._-`. kind должен быть из закрытого списка.
 _SAFE_PATH_RE = re.compile(r'^[A-Za-z0-9._-]+$')
+# Recheck#blocker1 (search_by_vin path-traversal): VIN — только буквы и цифры,
+# разрешать точки/дефисы здесь нельзя, иначе `vin="1/../admin/"` (len=11) пройдёт
+# по серверной длинной-проверке 5..17 и httpx нормализует `../` в путь.
+_SAFE_VIN_RE = re.compile(r'^[A-Za-z0-9]+$')
 _ALLOWED_KINDS = frozenset({
     'otts', 'otch', 'zotts', 'zotch', 'zoets', 'sbkts', 'sout', 'cert', 'decl',
 })
@@ -43,6 +47,14 @@ def _safe_kind(kind: str) -> str:
             f'Unknown kind {kind!r}. Allowed: {sorted(_ALLOWED_KINDS)}.',
         )
     return kind
+
+
+def _safe_vin(vin: str) -> str:
+    if not vin or not _SAFE_VIN_RE.match(vin):
+        raise ValueError(
+            'vin contains forbidden characters (allowed: [A-Za-z0-9]+).',
+        )
+    return vin
 
 
 class HptSuApiError(RuntimeError):
@@ -210,7 +222,7 @@ class HptSuClient:
         until upstream lands.
         """
         token = filters.pop("token", None)
-        return await self._get(f"/docs/by_vin/{vin}/", params=filters, token=token)
+        return await self._get(f"/docs/by_vin/{_safe_vin(vin)}/", params=filters, token=token)
 
     async def fulltext_search(self, q: str, **filters: Any) -> dict[str, Any]:
         """Full-text search inside PDF bodies — `GET /docs/fulltext/?q=...`.
