@@ -125,12 +125,14 @@ def _format(result: Any) -> str:
 
 
 def _err(exc: HptSuApiError) -> str:
-    # LOW#613: сырой upstream-detail может содержать stack-trace/PII при 5xx —
-    # для общих ошибок отдаём generic-message, full detail остаётся в лог.
+    # LOW#613 + Recheck-LOW: сырой upstream-detail может содержать stack-trace/PII
+    # для любого кода (не только 5xx). 402/404 теперь тоже без detail в ответ
+    # LLM-клиенту — полный detail в server-side лог.
+    log.warning("hpt.su upstream error %s: %s", exc.status_code, exc.detail)
     if exc.status_code == 402:
         return (
-            f"Payment required ({exc.detail}). Upgrade your MCP key to the "
-            "paid tier at https://hpt.su/pricing/ to unlock this tool."
+            "Payment required. Upgrade your MCP key to the paid tier at "
+            "https://hpt.su/pricing/ to unlock this tool."
         )
     if exc.status_code == 429:
         return (
@@ -138,8 +140,7 @@ def _err(exc: HptSuApiError) -> str:
             "upgrade at https://hpt.su/pricing/ for 10 000 req/day."
         )
     if exc.status_code == 404:
-        return f"Not found: {exc.detail}"
-    log.warning("hpt.su upstream error %s: %s", exc.status_code, exc.detail)
+        return "Not found."
     if exc.status_code >= 500:
         return f"hpt.su upstream is unavailable (HTTP {exc.status_code}). Try again later."
     return f"hpt.su API error {exc.status_code}."

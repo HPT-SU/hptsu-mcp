@@ -4,6 +4,8 @@ from __future__ import annotations
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from . import __version__ as _PKG_VERSION
+
 
 class Settings(BaseSettings):
     """Настройки MCP-сервера.
@@ -39,7 +41,9 @@ class Settings(BaseSettings):
         description="HTTP timeout (seconds) for every API call.",
     )
     user_agent: str = Field(
-        default="hptsu-mcp/0.1",
+        # Recheck-LOW: подтягиваем из __version__ — раньше отставало (0.1
+        # при пакетной версии 0.2), upstream-аналитика видела ложные следы.
+        default=f"hptsu-mcp/{_PKG_VERSION}",
         description="User-Agent header for outgoing API calls.",
     )
 

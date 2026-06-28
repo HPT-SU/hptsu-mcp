@@ -1,6 +1,6 @@
 # Copy-paste configs for popular MCP clients
 
-Все примеры ниже подставляют один и тот же исполняемый `hptsu-mcp` (после `uv tool install hptsu-mcp` / `pipx install hptsu-mcp`). Замени `YOUR-KEY` на ключ из [кабинета hpt.su → API keys](https://hpt.su/cabinet/api-keys/).
+Все примеры ниже подставляют один и тот же исполняемый `hptsu-mcp` (после `uv tool install hptsu-mcp` / `pipx install hptsu-mcp`). Замени `YOUR-KEY` на ключ из [кабинета hpt.su → MCP keys](https://hpt.su/user/mcp/).
 
 ## Claude Desktop
 
