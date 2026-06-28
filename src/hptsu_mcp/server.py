@@ -110,10 +110,17 @@ def _request_token(ctx: Context) -> str | None:
     headers = getattr(req, "headers", None)
     if headers is None:
         return None
+    # Recheck-MED: cap на размер header'а — защита от DoS гигантским
+    # Authorization (8KB hard-limit на header line в большинстве серверов,
+    # но FastAPI/starlette могут принять больше через max_headers_size).
     direct = headers.get("x-api-key")
     if direct:
+        if len(direct) > 4096:
+            return None
         return direct
     auth = headers.get("authorization", "")
+    if len(auth) > 4096:
+        return None
     if auth.lower().startswith("bearer "):
         token = auth.split(" ", 1)[1].strip()
         return f"BEARER {token}" if token else None
