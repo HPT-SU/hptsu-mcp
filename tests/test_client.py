@@ -76,6 +76,22 @@ async def test_error_response_raised(settings: Settings) -> None:
 
 
 @pytest.mark.asyncio
+async def test_no_filters_envelope_parsed(settings: Settings) -> None:
+    async with HptSuClient(settings) as client, respx.mock(base_url=settings.base_url) as mock:
+        mock.get("/docs/otts/").mock(
+            return_value=httpx.Response(400, json={
+                "code": "NO_FILTERS",
+                "message": "Задайте хотя бы один фильтр.",
+                "available_filters": ["brand", "number", "vin"],
+            }),
+        )
+        with pytest.raises(HptSuApiError) as exc:
+            await client.list_by_kind("otts")
+        assert exc.value.code == "NO_FILTERS"
+        assert exc.value.available_filters == ["brand", "number", "vin"]
+
+
+@pytest.mark.asyncio
 async def test_list_by_kind_strips_empty(settings: Settings) -> None:
     async with HptSuClient(settings) as client, respx.mock(base_url=settings.base_url) as mock:
         route = mock.get("/docs/otts/").mock(

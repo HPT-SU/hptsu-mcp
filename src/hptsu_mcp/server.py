@@ -161,6 +161,16 @@ def _err(exc: HptSuApiError) -> str:
         return f"Forbidden: {exc.detail}"
     if exc.code == 'INVALID_INPUT':
         return f"Invalid input: {exc.detail}"
+    if exc.code == 'NO_FILTERS':
+        # Autocomplete-контракт: list-эндпоинты отдают данные только при
+        # заданном content-фильтре. Подсказываем LLM повторить вызов с фильтром.
+        hint = f" Available filters: {', '.join(exc.available_filters)}." \
+            if exc.available_filters else ""
+        return (
+            f"No filters given — this endpoint returns data only when at "
+            f"least one search filter is set (page/page_size don't count). "
+            f"Retry with a filter.{hint}"
+        )
 
     # Fallback на status_code (legacy bridge для бэка до H5).
     if exc.status_code == 402:

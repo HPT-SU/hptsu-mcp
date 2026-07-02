@@ -73,6 +73,7 @@ class HptSuApiError(RuntimeError):
         code: str | None = None,
         upgrade_url: str | None = None,
         retry_after: int | None = None,
+        available_filters: list[str] | None = None,
     ) -> None:
         super().__init__(f"hpt.su API {status_code}: {detail}")
         self.status_code = status_code
@@ -81,6 +82,9 @@ class HptSuApiError(RuntimeError):
         self.code = code
         self.upgrade_url = upgrade_url
         self.retry_after = retry_after
+        # code=NO_FILTERS (autocomplete-контракт) кладёт рядом список
+        # доступных фильтров — пробрасываем до LLM-сообщения.
+        self.available_filters = available_filters
 
 
 class HptSuClient:
@@ -177,12 +181,16 @@ class HptSuClient:
             body = resp.text
         # Canonical envelope (Recheck-H5): {code, message, upgrade_url?, retry_after?}.
         if isinstance(body, dict) and 'code' in body and 'message' in body:
+            filters = body.get('available_filters')
             raise HptSuApiError(
                 resp.status_code,
                 str(body.get('message', '')),
                 code=str(body['code']),
                 upgrade_url=body.get('upgrade_url'),
                 retry_after=body.get('retry_after'),
+                available_filters=(
+                    [str(f) for f in filters] if isinstance(filters, list) else None
+                ),
             )
         # Legacy DRF-format {detail: '...'}.
         if isinstance(body, dict) and 'detail' in body:

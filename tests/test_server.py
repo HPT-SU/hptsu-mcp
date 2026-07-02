@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import pytest
 
-from hptsu_mcp.server import PAGE_SIZE_MAX, REGISTRY_KINDS, mcp
+from hptsu_mcp.client import HptSuApiError
+from hptsu_mcp.server import PAGE_SIZE_MAX, REGISTRY_KINDS, _err, mcp
 
 
 def test_registry_kinds_documented() -> None:
@@ -16,6 +17,23 @@ def test_mcp_app_constructed() -> None:
 
 def test_page_size_max_is_50() -> None:
     assert PAGE_SIZE_MAX == 50
+
+
+def test_err_no_filters_mentions_available_filters() -> None:
+    exc = HptSuApiError(
+        400, "Задайте хотя бы один фильтр.",
+        code="NO_FILTERS", available_filters=["brand", "number", "vin"],
+    )
+    msg = _err(exc)
+    assert "Retry with a filter" in msg
+    assert "brand, number, vin" in msg
+
+
+def test_err_no_filters_without_list() -> None:
+    exc = HptSuApiError(400, "Задайте хотя бы один фильтр.", code="NO_FILTERS")
+    msg = _err(exc)
+    assert "Retry with a filter." in msg
+    assert "Available filters" not in msg
 
 
 @pytest.mark.asyncio
