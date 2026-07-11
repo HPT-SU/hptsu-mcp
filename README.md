@@ -121,6 +121,12 @@ For hosted MCP gateways set `HPTSU_TRANSPORT=streamable-http` (or `sse`) and cal
 | `list_tnved_codes` | TN VED EAEU classifier (cert/decl context only). |
 | `list_registry_kinds` | Enumerate registry kinds the API exposes. |
 
+> **Reference filters accept names, not internal ids.** The search tools resolve
+> human-readable values automatically — pass `issuer="НАМИ"`, `brand="KAMAZ"`,
+> `eco_class="5"`, `wheel_formula="4x2"`, `axis_count="2"` and the server looks up
+> the reference id for you (`issuer` / `brand` also take a numeric id directly).
+> An ambiguous name returns the matching candidates to pick from.
+
 ## Configuration
 
 | Variable | Default | Meaning |

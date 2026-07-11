@@ -13,7 +13,23 @@ the project adheres to [SemVer](https://semver.org/spec/v2.0.0.html).
   вернуться файлы случайного документа. Upstream URL изменён:
   `/api/v1/docs/<kind>/<slug>/files/` (был `/api/v1/docs/<slug>/files/`).
 
+### Fixed
+
+- Slug-валидатор `_safe` разрешает кириллицу и точки (`^[\w.-]+$`): реальные
+  номера-slug'и кириллические (`тс-ru-e-ru.нв23.00256`), из-за прежнего
+  ASCII-only regex `get_document` / `list_document_files` /
+  `download_document_file` не резолвились ни на одном документе. Path-traversal
+  по-прежнему закрыт (нет `/`, запрещён `..`). Требует парного бэкенд-фикса
+  `document.api.mixins` (точка в `lookup_value_regex` роута detail).
+
 ### Added
+
+- **Авто-резолв имя→id справочных фильтров**: `search_*.issuer`,
+  `list_vehicle_models.brand`, `search_*.eco_class` / `wheel_formula` /
+  `axis_count` принимают человекочитаемое значение — сервер резолвит его в pk
+  через `/nsi/`-справочники (0→ошибка, 1→подстановка, много→список кандидатов),
+  кэш на процесс. `issuer`/`brand` дополнительно принимают числовой id напрямую.
+  Требует бэкенд-эндпоинты `/nsi/eco-classes|axis-counts|wheel-formulas/`.
 
 - **Per-kind search tools**: `search_otts`, `search_otch`, `search_zotts`,
   `search_zotch`, `search_sbkts`, `search_zoets`, `search_sout` — заменяют
@@ -44,6 +60,9 @@ the project adheres to [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- `axis_count` параметр search-тулов: тип `int` → `str` — можно передать число
+  осей («2») или точное наименование («2 / 4»); резолвится в id справочника
+  осей/колёс (число осей может дать несколько записей → кандидаты).
 - `search_by_vin`: убран per-kind подписочный гейт — VIN-поиск открыт во
   всех 6 car-kinds (anon → conversion funnel к покупке документа).
 - `hptsu://about` resource: обновлён список tools (per-kind), новая
