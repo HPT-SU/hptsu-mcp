@@ -5,13 +5,81 @@ import httpx
 import pytest
 import respx
 
-from hptsu_mcp.client import HptSuApiError, HptSuClient
+from hptsu_mcp.client import HptSuApiError, HptSuClient, RefResolution, _safe
 from hptsu_mcp.config import Settings
+
+
+@pytest.mark.asyncio
+async def test_resolve_ref_single_match_returns_id(settings: Settings) -> None:
+    with respx.mock(base_url=settings.base_url) as mock:
+        mock.get("/nsi/brands/").mock(return_value=httpx.Response(
+            200, json={"count": 1, "results": [{"id": 417, "title": "КАМАЗ"}]}))
+        async with HptSuClient(settings) as client:
+            res = await client.resolve_ref("/nsi/brands/", "KAMAZ")
+    assert isinstance(res, RefResolution)
+    assert res.found and res.id == 417
+    assert not res.ambiguous
+
+
+@pytest.mark.asyncio
+async def test_resolve_ref_no_match(settings: Settings) -> None:
+    with respx.mock(base_url=settings.base_url) as mock:
+        mock.get("/nsi/brands/").mock(return_value=httpx.Response(
+            200, json={"count": 0, "results": []}))
+        async with HptSuClient(settings) as client:
+            res = await client.resolve_ref("/nsi/brands/", "Нетакого")
+    assert not res.found and not res.ambiguous
+    assert res.candidates == []
+
+
+@pytest.mark.asyncio
+async def test_resolve_ref_many_truncates_candidates(settings: Settings) -> None:
+    rows = [{"id": i, "name": f"НАМИ-{i}"} for i in range(1, 13)]  # 12 из 18
+    with respx.mock(base_url=settings.base_url) as mock:
+        mock.get("/nsi/certification-bodies/").mock(return_value=httpx.Response(
+            200, json={"count": 18, "results": rows}))
+        async with HptSuClient(settings) as client:
+            res = await client.resolve_ref("/nsi/certification-bodies/", "НАМИ")
+    assert res.ambiguous and res.id is None
+    assert len(res.candidates) == 12
+    assert res.truncated
+    assert res.candidates[0] == {"id": 1, "label": "НАМИ-1"}
+
+
+@pytest.mark.asyncio
+async def test_resolve_ref_cached_second_call_no_http(settings: Settings) -> None:
+    with respx.mock(base_url=settings.base_url) as mock:
+        route = mock.get("/nsi/brands/").mock(return_value=httpx.Response(
+            200, json={"count": 1, "results": [{"id": 417, "title": "КАМАЗ"}]}))
+        async with HptSuClient(settings) as client:
+            r1 = await client.resolve_ref("/nsi/brands/", "KAMAZ")
+            r2 = await client.resolve_ref("/nsi/brands/", "kamaz")  # casefold → кэш
+    assert r1.id == 417 and r2.id == 417
+    assert route.call_count == 1
 
 
 @pytest.fixture
 def settings() -> Settings:
     return Settings(api_key="test-key", base_url="https://hpt.su/api/v1")
+
+
+@pytest.mark.parametrize("slug", [
+    "тс-ru-e-ru.нв23.00256",        # ОТТС: кириллица + точки
+    "еаэс-ru-c-se.мт49.в.0050720",  # сертификат
+    "RU-C-RU-MTS-00001",            # ASCII (регресс)
+    "otts-12345",
+])
+def test_safe_allows_real_cyrillic_dotted_slugs(slug: str) -> None:
+    """Реальные slug'и документов кириллические и содержат точки — `_safe`
+    их пропускает (иначе get_document/list_document_files не работают)."""
+    assert _safe(slug, "slug") == slug
+
+
+@pytest.mark.parametrize("bad", ["../admin", "a/b", "..", "foo/../bar", "", "a b"])
+def test_safe_blocks_traversal_and_separators(bad: str) -> None:
+    """`/`, пробел и `..` отвергаются — path-traversal (HIGH#216) невозможен."""
+    with pytest.raises(ValueError):
+        _safe(bad, "slug")
 
 
 @pytest.mark.asyncio

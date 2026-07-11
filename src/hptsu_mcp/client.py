@@ -20,9 +20,13 @@ from .config import Settings
 
 
 # HIGH#216 path traversal: httpx.URL нормализует `../`, поэтому slug='../../admin'
-# в `f"/docs/{kind}/{slug}/"` превращался в /api/v1/admin/. Разрешённые символы
-# в slug/file_uid — буквы, цифры и `._-`. kind должен быть из закрытого списка.
-_SAFE_PATH_RE = re.compile(r'^[A-Za-z0-9._-]+$')
+# в `f"/docs/{kind}/{slug}/"` превращался в /api/v1/admin/. Реальные slug'и
+# документов кириллические и содержат точки (`тс-ru-e-ru.нв23.00256`), поэтому
+# charset совпадает с эталоном `tech_docs.urls.kinds` (`[a-zA-Zа-яА-Я0-9.-]`):
+# буквы латиницы/кириллицы (через `\w`, Unicode по умолчанию), цифры, `.`, `-`,
+# плюс `_` для file_uid. `/` в набор не входит → traversal невозможен; отдельно
+# запрещаем `..` (схлопывание сегмента). kind — из закрытого списка.
+_SAFE_PATH_RE = re.compile(r'^[\w.-]+$')
 # Recheck#blocker1 (search_by_vin path-traversal): VIN — только буквы и цифры,
 # разрешать точки/дефисы здесь нельзя, иначе `vin="1/../admin/"` (len=11) пройдёт
 # по серверной длинной-проверке 5..17 и httpx нормализует `../` в путь.
@@ -33,10 +37,10 @@ _ALLOWED_KINDS = frozenset({
 
 
 def _safe(part: str, label: str) -> str:
-    if not part or not _SAFE_PATH_RE.match(part):
+    if not part or '..' in part or not _SAFE_PATH_RE.match(part):
         raise ValueError(
             f'{label} contains forbidden characters '
-            f'(allowed: [A-Za-z0-9._-]+).',
+            f'(allowed: letters, digits and ._- ; no "..").',
         )
     return part
 
@@ -55,6 +59,36 @@ def _safe_vin(vin: str) -> str:
             'vin contains forbidden characters (allowed: [A-Za-z0-9]+).',
         )
     return vin
+
+
+class RefResolution:
+    """Итог резолва человекочитаемого имени в id справочной сущности.
+
+    kind-фильтры документов ссылаются на справочники по внутреннему pk
+    (`issuer`, `brand`, `eco_class`, …), а LLM/пользователь знает только имя.
+    `resolve_ref` бьёт по `/nsi/`-эндпоинту и возвращает:
+
+    * ``id`` заполнен → однозначное совпадение (готово к подстановке в фильтр);
+    * ``candidates`` непусто → неоднозначно (имя совпало с несколькими) —
+      single-pk фильтр несколько id не примет, поэтому выбор за клиентом;
+    * оба пусты → не найдено.
+    """
+
+    __slots__ = ('id', 'candidates', 'query', 'truncated')
+
+    def __init__(self, *, id=None, candidates=None, query='', truncated=False):
+        self.id = id
+        self.candidates = candidates or []
+        self.query = query
+        self.truncated = truncated
+
+    @property
+    def found(self) -> bool:
+        return self.id is not None
+
+    @property
+    def ambiguous(self) -> bool:
+        return self.id is None and bool(self.candidates)
 
 
 class HptSuApiError(RuntimeError):
@@ -112,6 +146,9 @@ class HptSuClient:
             settings.api_key.get_secret_value() if settings.api_key else None
         )
         self._mcp_client_tag: str | None = None
+        # Кэш резолвов имя→id справочников. Справочные данные user-independent
+        # (публичны), поэтому кэшируем на весь процесс; сброс при переполнении.
+        self._ref_cache: dict[tuple[str, str, str], RefResolution] = {}
         # LOW#617: бесконечный пул keep-alive утечёт коннекты в hosted-режиме
         # при ALB-style клиентах, бьющих по mcp.hpt.su с одного IP.
         self._client = httpx.AsyncClient(
@@ -339,3 +376,61 @@ class HptSuClient:
         """
         token = filters.pop("token", None)
         return await self._get("/nsi/tnved/", params=filters, token=token)
+
+    # ---------- reference name→id resolution ----------
+
+    _REF_CACHE_MAX = 512
+
+    async def resolve_ref(
+        self,
+        path: str,
+        value: str,
+        *,
+        param: str = "name",
+        token: str | None = None,
+        label_keys: tuple[str, ...] = (
+            "title", "name", "name_short", "name_full", "label", "code",
+        ),
+        max_candidates: int = 12,
+    ) -> RefResolution:
+        """Резолв имени справочной сущности в её id через `/nsi/`-эндпоинт.
+
+        `path` — endpoint (`/nsi/brands/`, `/nsi/certification-bodies/`, …);
+        `value` — человекочитаемое имя; `param` — имя query-фильтра поиска.
+        Результат кэшируется по (path, param, value) — справочники публичны.
+        """
+        q = (value or "").strip()
+        if not q:
+            return RefResolution(query=value)
+        key = (path, param, q.casefold())
+        hit = self._ref_cache.get(key)
+        if hit is not None:
+            return hit
+
+        data = await self._get(path, params={param: q}, token=token)
+        rows = (data.get("results") if isinstance(data, dict) else None) or []
+        total = data.get("count", len(rows)) if isinstance(data, dict) else len(rows)
+
+        if total == 0 or not rows:
+            res = RefResolution(query=q)
+        elif total == 1 and len(rows) == 1:
+            res = RefResolution(id=rows[0].get("id"), query=q)
+        else:
+            cands = [
+                {
+                    "id": r.get("id"),
+                    "label": next(
+                        (r[k] for k in label_keys if r.get(k)), str(r.get("id")),
+                    ),
+                }
+                for r in rows[:max_candidates]
+            ]
+            res = RefResolution(
+                candidates=cands, query=q,
+                truncated=total > len(cands),
+            )
+
+        if len(self._ref_cache) >= self._REF_CACHE_MAX:
+            self._ref_cache.clear()
+        self._ref_cache[key] = res
+        return res

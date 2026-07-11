@@ -131,6 +131,59 @@ def _format(result: Any) -> str:
     return json.dumps(result, ensure_ascii=False, indent=2)
 
 
+# kind → NSI-эндпоинт для резолва issuer (орган сертификации vs лаборатория).
+# otts/otch/zotts/zotch выдают органы (CERT_BODY); sbkts/zoets — лаборатории.
+_ISSUER_ENDPOINT: dict[str, str] = {
+    "otts": "/nsi/certification-bodies/",
+    "otch": "/nsi/certification-bodies/",
+    "zotts": "/nsi/certification-bodies/",
+    "zotch": "/nsi/certification-bodies/",
+    "sbkts": "/nsi/test-labs/",
+    "zoets": "/nsi/test-labs/",
+}
+
+
+async def _resolve_or_message(
+    client: HptSuClient,
+    path: str,
+    value: Any,
+    *,
+    token: str | None,
+    label: str,
+    param: str = "name",
+    numeric_is_id: bool = True,
+) -> tuple[str | None, str | None]:
+    """Резолв «имя справочника → id» для подстановки в kind-фильтр.
+
+    Возвращает ``(id_str, None)`` при успехе или ``(None, message)`` — текст
+    для LLM, если резолв не удался.
+
+    ``numeric_is_id`` — при True числовое значение считаем уже готовым pk
+    (issuer/brand: клиент вправе передать id напрямую). При False цифра —
+    это семантическое значение, а не id (eco_class='5', axis_count=2), и его
+    всё равно надо резолвить через справочник по ``param``.
+    """
+    s = str(value).strip()
+    if not s:
+        return None, None
+    if numeric_is_id and s.isdigit():
+        return s, None
+    res = await client.resolve_ref(path, s, param=param, token=token)
+    if res.found:
+        return str(res.id), None
+    if res.ambiguous:
+        opts = "; ".join(f"{c['label']} (id={c['id']})" for c in res.candidates)
+        more = " …and more" if res.truncated else ""
+        return None, (
+            f"{label} '{s}' is ambiguous — several matches{more}: {opts}. "
+            f"Retry with a more exact name or pass the numeric id."
+        )
+    return None, (
+        f"{label} '{s}' not found in the reference book — check spelling or "
+        f"look it up via the matching list_* tool, then pass its id."
+    )
+
+
 def _err(exc: HptSuApiError) -> str:
     """Преобразует upstream-ошибку в LLM-сообщение.
 
@@ -290,10 +343,56 @@ async def search_declarations(
 async def _search_kind(ctx: Context, kind: str, *, page: int, page_size: int, **kw) -> str:
     """Shared body for per-kind search tools."""
     client = _get_client(ctx)
+    token = _request_token(ctx)
     try:
+        # Авто-резолв ссылочных фильтров: kind-фильтры ждут pk справочной
+        # сущности, а LLM передаёт человекочитаемое значение. Резолвим каждое
+        # через свой /nsi/-справочник; при неоднозначности вернём кандидатов.
+        issuer = kw.get("issuer")
+        if issuer is not None and kind in _ISSUER_ENDPOINT:
+            rid, msg = await _resolve_or_message(
+                client, _ISSUER_ENDPOINT[kind], issuer, token=token, label="issuer",
+            )
+            if msg:
+                return msg
+            kw["issuer"] = rid
+
+        eco = kw.get("eco_class")
+        if eco is not None:
+            rid, msg = await _resolve_or_message(
+                client, "/nsi/eco-classes/", eco, token=token,
+                label="eco_class", numeric_is_id=False,
+            )
+            if msg:
+                return msg
+            kw["eco_class"] = rid
+
+        wf = kw.get("wheel_formula")
+        if wf is not None:
+            rid, msg = await _resolve_or_message(
+                client, "/nsi/wheel-formulas/", wf, token=token,
+                label="wheel_formula", numeric_is_id=False,
+            )
+            if msg:
+                return msg
+            kw["wheel_formula"] = rid
+
+        ax = kw.get("axis_count")
+        if ax is not None:
+            # «2» → по числу осей (может быть неоднозначно); «2 / 4» → по имени.
+            ax_s = str(ax).strip()
+            ax_param = "axis_count" if ax_s.isdigit() else "name"
+            rid, msg = await _resolve_or_message(
+                client, "/nsi/axis-counts/", ax_s, token=token,
+                label="axis_count", param=ax_param, numeric_is_id=False,
+            )
+            if msg:
+                return msg
+            kw["axis_count"] = rid
+
         data = await client.list_by_kind(
             kind, page=page, page_size=page_size,
-            token=_request_token(ctx),
+            token=token,
             **{k: v for k, v in kw.items() if v is not None},
         )
     except HptSuApiError as exc:
@@ -312,10 +411,10 @@ async def search_otts(
     chassis: str | None = Field(default=None, description="Chassis identifier (icontains)."),
     mods: str | None = Field(default=None, description="Modifications (icontains)."),
     category: str | None = Field(default=None, description="Vehicle category (M1, N2, L3, …)."),
-    eco_class: str | None = Field(default=None, description="Ecological class (Euro 5, etc.)."),
-    wheel_formula: str | None = Field(default=None, description="Wheel formula (4x2, 6x4, …)."),
-    axis_count: int | None = Field(default=None, description="Number of axles."),
-    issuer: str | None = Field(default=None, description="Certification body id (см. list_certification_bodies)."),
+    eco_class: str | None = Field(default=None, description="Ecological class — pass '5' or the name; auto-resolved to reference id."),
+    wheel_formula: str | None = Field(default=None, description="Wheel formula (e.g. '4x2'); auto-resolved to reference id."),
+    axis_count: str | None = Field(default=None, description="Axle count (e.g. '2') or exact 'axes / wheels' (e.g. '2 / 4') — auto-resolved to reference id. A bare axle count may match several wheel configs; then candidates are returned to pick from."),
+    issuer: str | None = Field(default=None, description="Certification body name — auto-resolved to id (or pass numeric id). See list_certification_bodies."),
     page: int = Field(default=1, ge=1, description="1-based page index."),
     page_size: int = Field(default=20, ge=1, le=PAGE_SIZE_MAX, description="Rows per page (max 50)."),
 ) -> str:
@@ -338,10 +437,10 @@ async def search_otch(
     type: str | None = Field(default=None, description="Type / model."),
     comm_name: str | None = Field(default=None, description="Commercial name."),
     category: str | None = Field(default=None, description="Vehicle category."),
-    eco_class: str | None = Field(default=None, description="Ecological class."),
-    wheel_formula: str | None = Field(default=None, description="Wheel formula."),
-    axis_count: int | None = Field(default=None, description="Number of axles."),
-    issuer: str | None = Field(default=None, description="Certification body id."),
+    eco_class: str | None = Field(default=None, description="Ecological class — '5' or name; auto-resolved to reference id."),
+    wheel_formula: str | None = Field(default=None, description="Wheel formula (e.g. '4x2'); auto-resolved to reference id."),
+    axis_count: str | None = Field(default=None, description="Axle count (e.g. '2') or exact 'axes / wheels' (e.g. '2 / 4') — auto-resolved to reference id. A bare axle count may match several wheel configs; then candidates are returned to pick from."),
+    issuer: str | None = Field(default=None, description="Certification body name — auto-resolved to id (or pass numeric id)."),
     page: int = Field(default=1, ge=1, description="1-based page index."),
     page_size: int = Field(default=20, ge=1, le=PAGE_SIZE_MAX, description="Rows per page (max 50)."),
 ) -> str:
@@ -362,10 +461,10 @@ async def search_zotts(
     brand: str | None = Field(default=None, description="Brand."),
     type: str | None = Field(default=None, description="Type."),
     category: str | None = Field(default=None, description="Vehicle category."),
-    eco_class: str | None = Field(default=None, description="Ecological class."),
-    wheel_formula: str | None = Field(default=None, description="Wheel formula."),
-    axis_count: int | None = Field(default=None, description="Number of axles."),
-    issuer: str | None = Field(default=None, description="Certification body id."),
+    eco_class: str | None = Field(default=None, description="Ecological class — '5' or name; auto-resolved to reference id."),
+    wheel_formula: str | None = Field(default=None, description="Wheel formula (e.g. '4x2'); auto-resolved to reference id."),
+    axis_count: str | None = Field(default=None, description="Axle count (e.g. '2') or exact 'axes / wheels' (e.g. '2 / 4') — auto-resolved to reference id. A bare axle count may match several wheel configs; then candidates are returned to pick from."),
+    issuer: str | None = Field(default=None, description="Certification body name — auto-resolved to id (or pass numeric id)."),
     page: int = Field(default=1, ge=1, description="1-based page index."),
     page_size: int = Field(default=20, ge=1, le=PAGE_SIZE_MAX, description="Rows per page (max 50)."),
 ) -> str:
@@ -386,10 +485,10 @@ async def search_zotch(
     brand: str | None = Field(default=None, description="Brand."),
     type: str | None = Field(default=None, description="Type."),
     category: str | None = Field(default=None, description="Vehicle category."),
-    eco_class: str | None = Field(default=None, description="Ecological class."),
-    wheel_formula: str | None = Field(default=None, description="Wheel formula."),
-    axis_count: int | None = Field(default=None, description="Number of axles."),
-    issuer: str | None = Field(default=None, description="Certification body id."),
+    eco_class: str | None = Field(default=None, description="Ecological class — '5' or name; auto-resolved to reference id."),
+    wheel_formula: str | None = Field(default=None, description="Wheel formula (e.g. '4x2'); auto-resolved to reference id."),
+    axis_count: str | None = Field(default=None, description="Axle count (e.g. '2') or exact 'axes / wheels' (e.g. '2 / 4') — auto-resolved to reference id. A bare axle count may match several wheel configs; then candidates are returned to pick from."),
+    issuer: str | None = Field(default=None, description="Certification body name — auto-resolved to id (or pass numeric id)."),
     page: int = Field(default=1, ge=1, description="1-based page index."),
     page_size: int = Field(default=20, ge=1, le=PAGE_SIZE_MAX, description="Rows per page (max 50)."),
 ) -> str:
@@ -415,10 +514,10 @@ async def search_sbkts(
     motor: str | None = Field(default=None, description="Electric motor model (icontains)."),
     motor_power: int | None = Field(default=None, description="Motor power (kW)."),
     category: str | None = Field(default=None, description="Vehicle category."),
-    eco_class: str | None = Field(default=None, description="Ecological class."),
-    wheel_formula: str | None = Field(default=None, description="Wheel formula."),
-    axis_count: int | None = Field(default=None, description="Number of axles."),
-    issuer: str | None = Field(default=None, description="Testing lab id (см. list_test_labs)."),
+    eco_class: str | None = Field(default=None, description="Ecological class — '5' or name; auto-resolved to reference id."),
+    wheel_formula: str | None = Field(default=None, description="Wheel formula (e.g. '4x2'); auto-resolved to reference id."),
+    axis_count: str | None = Field(default=None, description="Axle count (e.g. '2') or exact 'axes / wheels' (e.g. '2 / 4') — auto-resolved to reference id. A bare axle count may match several wheel configs; then candidates are returned to pick from."),
+    issuer: str | None = Field(default=None, description="Testing lab name — auto-resolved to id (or pass numeric id). See list_test_labs."),
     date_from: str | None = Field(default=None, description="Issue date from (YYYY-MM-DD)."),
     date_to: str | None = Field(default=None, description="Issue date to (YYYY-MM-DD)."),
     page: int = Field(default=1, ge=1, description="1-based page index."),
@@ -448,10 +547,10 @@ async def search_zoets(
     motor: str | None = Field(default=None, description="Electric motor model."),
     motor_power: int | None = Field(default=None, description="Motor power (kW)."),
     category: str | None = Field(default=None, description="Vehicle category."),
-    eco_class: str | None = Field(default=None, description="Ecological class."),
-    wheel_formula: str | None = Field(default=None, description="Wheel formula."),
-    axis_count: int | None = Field(default=None, description="Number of axles."),
-    issuer: str | None = Field(default=None, description="Testing lab id."),
+    eco_class: str | None = Field(default=None, description="Ecological class — '5' or name; auto-resolved to reference id."),
+    wheel_formula: str | None = Field(default=None, description="Wheel formula (e.g. '4x2'); auto-resolved to reference id."),
+    axis_count: str | None = Field(default=None, description="Axle count (e.g. '2') or exact 'axes / wheels' (e.g. '2 / 4') — auto-resolved to reference id. A bare axle count may match several wheel configs; then candidates are returned to pick from."),
+    issuer: str | None = Field(default=None, description="Testing lab name — auto-resolved to id (or pass numeric id)."),
     date_from: str | None = Field(default=None, description="Issue date from (YYYY-MM-DD)."),
     date_to: str | None = Field(default=None, description="Issue date to (YYYY-MM-DD)."),
     page: int = Field(default=1, ge=1, description="1-based page index."),
@@ -613,17 +712,25 @@ async def list_brands(
 @mcp.tool()
 async def list_vehicle_models(
     ctx: Context,
-    brand: str | None = Field(default=None, description="Brand name or id."),
+    brand: str | None = Field(default=None, description="Brand name (auto-resolved to id) or numeric brand id."),
     name: str | None = Field(default=None, description="Model name substring."),
     page: int = Field(default=1, ge=1, description="1-based page index."),
     page_size: int = Field(default=20, ge=1, le=PAGE_SIZE_MAX, description="Rows per page (max 50)."),
 ) -> str:
     """Resolve a vehicle model name (within a brand) to canonical record."""
     client = _get_client(ctx)
+    token = _request_token(ctx)
     try:
+        # brand-фильтр моделей — по id марки; принимаем и название (резолвим).
+        if brand is not None:
+            rid, msg = await _resolve_or_message(
+                client, "/nsi/brands/", brand, token=token, label="brand",
+            )
+            if msg:
+                return msg
+            brand = rid
         return _format(await client.list_vehicle_models(
-            brand=brand, name=name, page=page, page_size=page_size,
-            token=_request_token(ctx),
+            brand=brand, name=name, page=page, page_size=page_size, token=token,
         ))
     except HptSuApiError as exc:
         return _err(exc)
