@@ -9,13 +9,13 @@
   "authors": [
     { "name": "hpt.su", "email": "mcp@hpt.su" }
   ],
-  "version": "0.2.0",
+  "version": "0.3.0",
   "websiteUrl": "https://hpt.su",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "hptsu-mcp",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "runtimeHint": "uvx",
       "transport": {
         "type": "stdio"

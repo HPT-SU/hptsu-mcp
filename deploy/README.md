@@ -36,11 +36,11 @@
 ```bash
 # Liveness
 curl https://mcp.hpt.su/healthz
-# {"status":"ok","version":"0.1.0"}
+# {"status":"ok","version":"0.3.0"}
 
 # Readiness (проверяет upstream — ходит в hpt.su без auth, ждёт 401)
 curl https://mcp.hpt.su/readyz
-# {"status":"ready","version":"0.1.0","upstream":"auth-rejected-as-expected"}
+# {"status":"ready","version":"0.3.0","upstream":"auth-rejected-as-expected"}
 
 # MCP-протокол — инициализация (для теста через mcp-cli)
 npx @modelcontextprotocol/inspector https://mcp.hpt.su/mcp

@@ -4,7 +4,11 @@ All notable changes to `hptsu-mcp` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 the project adheres to [SemVer](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.0] — 2026-07-11
+
+Первый публичный релиз (hosted `mcp.hpt.su`). Включает всё, что накопилось после
+0.1.0: версия 0.2.0 существовала только как внутренний staging-билд
+(`mcp.staging.example`) и отдельно не выпускалась — её изменения вошли в этот релиз.
 
 ### Changed
 
@@ -12,6 +16,20 @@ the project adheres to [SemVer](https://semver.org/spec/v2.0.0.html).
   (как `get_document`) — slug не уникален между kinds, и без `kind` могли
   вернуться файлы случайного документа. Upstream URL изменён:
   `/api/v1/docs/<kind>/<slug>/files/` (был `/api/v1/docs/<slug>/files/`).
+- `axis_count` параметр search-тулов: тип `int` → `str` — можно передать число
+  осей («2») или точное наименование («2 / 4»); резолвится в id справочника
+  осей/колёс (число осей может дать несколько записей → кандидаты).
+- `search_by_vin`: убран per-kind подписочный гейт — VIN-поиск открыт во
+  всех 6 car-kinds (anon → conversion funnel к покупке документа).
+- `hptsu://about` resource: обновлён список tools (per-kind), новая
+  auth-схема, новые endpoints.
+- Auth scheme: `X-API-Key: <public_id>:<secret>` (was `Authorization: Bearer`)
+  to match `td_billing.api.auth.ApiKeyAuthentication`.
+- `download_document_file` now accepts `file_uid` (was `document_id`); pair it
+  with `list_document_files` to enumerate file UIDs of a document.
+- `search_by_vin`: minimum VIN length lowered from 10 to 5 chars (matches upstream).
+- All `next`/`previous` pagination URLs returned by API now use the public host
+  (`https://hpt.su/...`) instead of the container address (`http://web-hpt-su:8000/...`).
 
 ### Fixed
 
@@ -57,23 +75,6 @@ the project adheres to [SemVer](https://semver.org/spec/v2.0.0.html).
 - `deploy/` directory with docker-compose example + nginx vhost.
 - `docs/CLIENT_CONFIGS.md`: snippets for Claude Desktop, Cursor, Cline, Continue,
   Goose, Cherry Studio, 5ire, LM Studio, VS Code Copilot, Zed.
-
-### Changed
-
-- `axis_count` параметр search-тулов: тип `int` → `str` — можно передать число
-  осей («2») или точное наименование («2 / 4»); резолвится в id справочника
-  осей/колёс (число осей может дать несколько записей → кандидаты).
-- `search_by_vin`: убран per-kind подписочный гейт — VIN-поиск открыт во
-  всех 6 car-kinds (anon → conversion funnel к покупке документа).
-- `hptsu://about` resource: обновлён список tools (per-kind), новая
-  auth-схема, новые endpoints.
-- Auth scheme: `X-API-Key: <public_id>:<secret>` (was `Authorization: Bearer`)
-  to match `td_billing.api.auth.ApiKeyAuthentication`.
-- `download_document_file` now accepts `file_uid` (was `document_id`); pair it
-  with `list_document_files` to enumerate file UIDs of a document.
-- `search_by_vin`: minimum VIN length lowered from 10 to 5 chars (matches upstream).
-- All `next`/`previous` pagination URLs returned by API now use the public host
-  (`https://hpt.su/...`) instead of the container address (`http://web-hpt-su:8000/...`).
 
 ### Removed
 
