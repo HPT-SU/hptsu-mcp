@@ -4,6 +4,14 @@ All notable changes to `hptsu-mcp` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 the project adheres to [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] — 2026-07-12
+
+### Fixed
+
+- README: маркер `mcp-name: su.hpt/hptsu-mcp` — Official MCP Registry проверяет
+  владение PyPI-пакетом по этой строке в README пакета. `server.json`: короткий
+  `description` (лимит реестра 100 символов) + hosted remote `mcp.hpt.su`.
+
 ## [0.3.0] — 2026-07-11
 
 Первый публичный релиз (hosted `mcp.hpt.su`). Включает всё, что накопилось после

@@ -175,3 +175,5 @@ MIT — see [LICENSE](./LICENSE).
 - Issue tracker: **https://github.com/hpt-su/hptsu-mcp/issues**
 - Contact: **mcp@hpt.su**
 - Model Context Protocol: **https://modelcontextprotocol.io**
+
+mcp-name: su.hpt/hptsu-mcp
