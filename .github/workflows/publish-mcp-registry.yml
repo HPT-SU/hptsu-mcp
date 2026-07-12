@@ -9,11 +9,16 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
-      id-token: write  # GitHub OIDC -> verifies namespace io.github.<org>/...
       contents: read
     steps:
       - uses: actions/checkout@v4
-      - name: Publish server.json to registry.modelcontextprotocol.io
-        uses: modelcontextprotocol/publish-mcp-server@v1
-        with:
-          server-json: server.json
+      - name: Install mcp-publisher
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+          sudo mv mcp-publisher /usr/local/bin/
+      # DNS-auth namespace su.hpt/* — TXT-запись на hpt.su содержит публичный ключ,
+      # приватный лежит в secrets.MCP_DNS_PRIVATE_KEY (64-hex Ed25519).
+      - name: Login (DNS, namespace su.hpt)
+        run: mcp-publisher login dns --domain hpt.su --private-key "${{ secrets.MCP_DNS_PRIVATE_KEY }}"
+      - name: Publish server.json
+        run: mcp-publisher publish
