@@ -1,7 +1,7 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
   "name": "su.hpt/hptsu-mcp",
-  "description": "Search the hpt.su database of Russian/EAEU vehicle compliance documents — type approvals (ОТТС/СБКТС/ОТШ), conformity certificates and declarations (ТР ТС/ТР ЕАЭС), type-approval notifications (СУТ). Read-only X-API-Key auth client over the official https://hpt.su/api/v1/ REST API.",
+  "description": "Search hpt.su — Russian/EAEU vehicle compliance documents: type approvals, certificates, VIN lookup.",
   "repository": {
     "url": "https://github.com/hpt-su/hptsu-mcp",
     "source": "github"
@@ -11,6 +11,20 @@
   ],
   "version": "0.3.0",
   "websiteUrl": "https://hpt.su",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://mcp.hpt.su/mcp",
+      "headers": [
+        {
+          "name": "X-API-Key",
+          "description": "API key issued at https://hpt.su/user/mcp/ (free tier available).",
+          "isRequired": true,
+          "isSecret": true
+        }
+      ]
+    }
+  ],
   "packages": [
     {
       "registryType": "pypi",
