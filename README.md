@@ -45,7 +45,7 @@ Two tiers exist for MCP:
 
 | Tier | Throttle | Price | Where to get |
 |------|---------|-------|--------------|
-| **Free MCP** | 50 requests/day | Free, signup required | [hpt.su/user/mcp/](https://hpt.su/user/mcp/) |
+| **Free MCP** | 50 requests/day; site subscribers: 500/day on subscribed registries (+50/day elsewhere) | Free, signup required | [hpt.su/user/mcp/](https://hpt.su/user/mcp/) |
 | **Paid MCP** | 10 000 requests/day, fulltext + downloads | See pricing | [hpt.su/pricing/](https://hpt.su/pricing/) |
 
 The free tier is plenty for demos and personal use. Upgrade unlocks `fulltext_search`, `download_document_file`, the VIN aggregator, and the higher daily limit.

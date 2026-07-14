@@ -30,7 +30,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from . import __version__
-from .client import HptSuApiError, HptSuClient
+from .client import HptSuApiError, HptSuClient, consume_update_notice
 from .config import Settings, load_settings
 
 
@@ -128,7 +128,13 @@ def _request_token(ctx: Context) -> str | None:
 
 
 def _format(result: Any) -> str:
-    return json.dumps(result, ensure_ascii=False, indent=2)
+    text = json.dumps(result, ensure_ascii=False, indent=2)
+    # Одноразовое предупреждение об устаревшем клиенте (stdio-режим) —
+    # см. client._note_min_version. None во всех остальных случаях.
+    notice = consume_update_notice()
+    if notice:
+        return f"{notice}\n\n{text}"
+    return text
 
 
 # kind → NSI-эндпоинт для резолва issuer (орган сертификации vs лаборатория).

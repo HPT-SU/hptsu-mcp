@@ -11,12 +11,17 @@ Some endpoints below are not yet live in hpt_su — see
 """
 from __future__ import annotations
 
+import logging
+import os
 import re
 from typing import Any
 
 import httpx
 
+from . import __version__
 from .config import Settings
+
+logger = logging.getLogger(__name__)
 
 
 # HIGH#216 path traversal: httpx.URL нормализует `../`, поэтому slug='../../admin'
@@ -34,6 +39,33 @@ _SAFE_VIN_RE = re.compile(r'^[A-Za-z0-9]+$')
 _ALLOWED_KINDS = frozenset({
     'otts', 'otch', 'zotts', 'zotch', 'zoets', 'sbkts', 'sout', 'cert', 'decl',
 })
+
+
+# ──── Проверка минимальной версии клиента ────────────────────────────────────
+#
+# Бэкенд hpt.su отдаёт в каждом ответе /api/v1/* заголовок с минимальной
+# рекомендуемой версией hptsu-mcp (см. hpt_mcp.middleware). Если наша версия
+# ниже — предупреждаем: в stdio-режиме одноразовой припиской к ответу
+# ближайшего тула (server._format), в hosted — только в лог (пользователь
+# hosted-инстанс не обновляет).
+
+MIN_VERSION_HEADER = 'x-hptsu-mcp-min-version'
+
+_UPDATE_NOTICE: str | None = None
+
+
+def consume_update_notice() -> str | None:
+    """Забрать одноразовое предупреждение об устаревшем клиенте (или None)."""
+    global _UPDATE_NOTICE
+    notice, _UPDATE_NOTICE = _UPDATE_NOTICE, None
+    return notice
+
+
+def _version_tuple(v: str) -> tuple[int, ...]:
+    parts = re.findall(r'\d+', v)
+    if not parts:
+        raise ValueError(f'unparsable version: {v!r}')
+    return tuple(int(p) for p in parts[:3])
 
 
 def _safe(part: str, label: str) -> str:
@@ -146,6 +178,7 @@ class HptSuClient:
             settings.api_key.get_secret_value() if settings.api_key else None
         )
         self._mcp_client_tag: str | None = None
+        self._min_version_checked = False
         # Кэш резолвов имя→id справочников. Справочные данные user-independent
         # (публичны), поэтому кэшируем на весь процесс; сброс при переполнении.
         self._ref_cache: dict[tuple[str, str, str], RefResolution] = {}
@@ -208,6 +241,38 @@ class HptSuClient:
 
     # ---------- raw plumbing ----------
 
+    def _note_min_version(self, resp: httpx.Response) -> None:
+        """Сверить свою версию с минимальной, объявленной бэкендом.
+
+        Проверка одна на процесс (после первого ответа с заголовком).
+        Ответ без заголовка не финализирует проверку: до апгрейда бэкенда
+        заголовка нет вовсе, а после — он есть на каждом ответе.
+        """
+        if self._min_version_checked:
+            return
+        raw = resp.headers.get(MIN_VERSION_HEADER, '').strip()
+        if not raw:
+            return
+        self._min_version_checked = True
+        try:
+            outdated = _version_tuple(__version__) < _version_tuple(raw)
+        except ValueError:
+            logger.warning('Неразборчивый %s: %r', MIN_VERSION_HEADER, raw)
+            return
+        if not outdated:
+            return
+        msg = (
+            f"⚠️ hptsu-mcp {__version__} is older than the minimum version "
+            f"{raw} recommended by the hpt.su API — some tools may return "
+            f"incomplete or malformed results. Please update: "
+            f"`pip install -U hptsu-mcp` (uvx picks up the latest release "
+            f"automatically on next start)."
+        )
+        logger.warning(msg)
+        if os.getenv('HPTSU_TRANSPORT', 'stdio').lower() == 'stdio':
+            global _UPDATE_NOTICE
+            _UPDATE_NOTICE = msg
+
     def _raise_for_status(self, resp: httpx.Response) -> None:
         """Поднять HptSuApiError из envelope или legacy-detail."""
         if resp.status_code < 400:
@@ -238,6 +303,7 @@ class HptSuClient:
                    token: str | None = None) -> Any:
         clean = {k: v for k, v in (params or {}).items() if v is not None and v != ""}
         resp = await self._client.get(path, params=clean, headers=self._build_headers(token))
+        self._note_min_version(resp)
         self._raise_for_status(resp)
         return resp.json()
 
@@ -245,6 +311,7 @@ class HptSuClient:
                     token: str | None = None) -> Any:
         resp = await self._client.post(path, json=json or {},
                                        headers=self._build_headers(token))
+        self._note_min_version(resp)
         self._raise_for_status(resp)
         return resp.json()
 

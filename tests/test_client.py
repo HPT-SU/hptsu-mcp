@@ -269,3 +269,75 @@ async def test_402_handled(settings: Settings) -> None:
         with pytest.raises(HptSuApiError) as exc:
             await client.fulltext_search("test")
         assert exc.value.status_code == 402
+
+
+# ──── Проверка минимальной версии клиента (X-HPTSU-MCP-Min-Version) ─────────
+
+def _resp(min_version: str | None = None) -> httpx.Response:
+    headers = {"X-HPTSU-MCP-Min-Version": min_version} if min_version else {}
+    return httpx.Response(200, json={"count": 0, "results": []}, headers=headers)
+
+
+@pytest.mark.asyncio
+async def test_min_version_outdated_sets_notice_once(settings, monkeypatch) -> None:
+    from hptsu_mcp import client as client_mod
+    monkeypatch.setattr(client_mod, "_UPDATE_NOTICE", None)
+    monkeypatch.delenv("HPTSU_TRANSPORT", raising=False)  # default stdio
+    with respx.mock(base_url=settings.base_url) as mock:
+        mock.get("/docs/").mock(return_value=_resp("99.0.0"))
+        async with HptSuClient(settings) as client:
+            await client.list_documents()
+            await client.list_documents()
+    notice = client_mod.consume_update_notice()
+    assert notice and "99.0.0" in notice and "pip install -U hptsu-mcp" in notice
+    assert client_mod.consume_update_notice() is None  # одноразовое
+
+
+@pytest.mark.asyncio
+async def test_min_version_current_ok_no_notice(settings, monkeypatch) -> None:
+    from hptsu_mcp import client as client_mod
+    monkeypatch.setattr(client_mod, "_UPDATE_NOTICE", None)
+    with respx.mock(base_url=settings.base_url) as mock:
+        mock.get("/docs/").mock(return_value=_resp("0.0.1"))
+        async with HptSuClient(settings) as client:
+            await client.list_documents()
+    assert client_mod.consume_update_notice() is None
+
+
+@pytest.mark.asyncio
+async def test_min_version_no_header_keeps_checking(settings, monkeypatch) -> None:
+    """Старый бэкенд без заголовка → проверка не финализируется, следующий
+    ответ с заголовком всё же срабатывает."""
+    from hptsu_mcp import client as client_mod
+    monkeypatch.setattr(client_mod, "_UPDATE_NOTICE", None)
+    monkeypatch.delenv("HPTSU_TRANSPORT", raising=False)
+    with respx.mock(base_url=settings.base_url) as mock:
+        mock.get("/docs/").mock(side_effect=[_resp(None), _resp("99.0.0")])
+        async with HptSuClient(settings) as client:
+            await client.list_documents()
+            assert client_mod.consume_update_notice() is None
+            await client.list_documents()
+    assert client_mod.consume_update_notice() is not None
+
+
+@pytest.mark.asyncio
+async def test_min_version_hosted_transport_logs_only(settings, monkeypatch) -> None:
+    """В hosted-режиме предупреждение не попадает в tool-ответы (только лог):
+    пользователь hosted-инстанс не обновляет."""
+    from hptsu_mcp import client as client_mod
+    monkeypatch.setattr(client_mod, "_UPDATE_NOTICE", None)
+    monkeypatch.setenv("HPTSU_TRANSPORT", "http")
+    with respx.mock(base_url=settings.base_url) as mock:
+        mock.get("/docs/").mock(return_value=_resp("99.0.0"))
+        async with HptSuClient(settings) as client:
+            await client.list_documents()
+    assert client_mod.consume_update_notice() is None
+
+
+def test_format_prepends_notice_once(monkeypatch) -> None:
+    from hptsu_mcp import client as client_mod
+    from hptsu_mcp.server import _format
+    monkeypatch.setattr(client_mod, "_UPDATE_NOTICE", "⚠️ update me")
+    first = _format({"a": 1})
+    assert first.startswith("⚠️ update me\n\n")
+    assert _format({"a": 1}).startswith("{")  # второй раз — без приписки

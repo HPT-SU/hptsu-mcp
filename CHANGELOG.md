@@ -4,6 +4,21 @@ All notable changes to `hptsu-mcp` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 the project adheres to [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Проверка версии клиента: бэкенд hpt.su объявляет минимальную совместимую
+  версию заголовком `X-HPTSU-MCP-Min-Version`; устаревший клиент пишет
+  warning в лог и (в stdio-режиме) один раз предупреждает пользователя
+  припиской к ответу ближайшего тула с инструкцией обновления.
+
+### Changed
+
+- Описания тулов и параметров переписаны без деталей внутренней реализации
+  (DAWG, icontains, UNION, внутренние коды) — только пользовательская
+  семантика.
+
 ## [0.3.1] — 2026-07-12
 
 ### Fixed
