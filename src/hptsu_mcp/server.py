@@ -286,11 +286,11 @@ async def get_document(
 async def search_certificates(
     ctx: Context,
     number: str | None = Field(default=None, description="Certificate number, full or partial."),
-    applicant: str | None = Field(default=None, description="Applicant name (icontains)."),
+    applicant: str | None = Field(default=None, description="Applicant name, full or partial."),
     applicant_inn: str | None = Field(default=None, description="Applicant INN (exact match)."),
-    manufacturer: str | None = Field(default=None, description="Manufacturer name (icontains)."),
+    manufacturer: str | None = Field(default=None, description="Manufacturer name, full or partial."),
     regulations: str | None = Field(default=None, description="Technical regulation code (e.g. 'ТР ТС 018/2011')."),
-    product: str | None = Field(default=None, description="Product full name (icontains)."),
+    product: str | None = Field(default=None, description="Product full name, full or partial."),
     status: str | None = Field(default=None, description="Certificate status code."),
     scheme: str | None = Field(default=None, description="Certification scheme — '1с'…'9с'."),
     page: int = Field(default=1, ge=1, description="1-based page index."),
@@ -315,11 +315,11 @@ async def search_certificates(
 async def search_declarations(
     ctx: Context,
     number: str | None = Field(default=None, description="Declaration number, full or partial."),
-    applicant: str | None = Field(default=None, description="Applicant name (icontains)."),
+    applicant: str | None = Field(default=None, description="Applicant name, full or partial."),
     applicant_inn: str | None = Field(default=None, description="Applicant INN (exact match)."),
-    manufacturer: str | None = Field(default=None, description="Manufacturer name (icontains)."),
+    manufacturer: str | None = Field(default=None, description="Manufacturer name, full or partial."),
     regulations: str | None = Field(default=None, description="Technical regulation code (e.g. 'ТР ТС 018/2011')."),
-    product: str | None = Field(default=None, description="Product full name (icontains)."),
+    product: str | None = Field(default=None, description="Product full name, full or partial."),
     status: str | None = Field(default=None, description="Declaration status code."),
     scheme: str | None = Field(default=None, description="Declaration scheme — '1д'…'6д'."),
     page: int = Field(default=1, ge=1, description="1-based page index."),
@@ -404,12 +404,12 @@ async def _search_kind(ctx: Context, kind: str, *, page: int, page_size: int, **
 async def search_otts(
     ctx: Context,
     number: str | None = Field(default=None, description="ОТТС number, full or partial."),
-    vin: str | None = Field(default=None, description="VIN substring (5-17 chars) — backend autoroute substring/DAWG."),
+    vin: str | None = Field(default=None, description="VIN, full or partial (5-17 characters)."),
     brand: str | None = Field(default=None, description="Vehicle brand (e.g. 'Toyota')."),
-    type: str | None = Field(default=None, description="Vehicle type / model (icontains)."),
-    comm_name: str | None = Field(default=None, description="Commercial name (icontains)."),
-    chassis: str | None = Field(default=None, description="Chassis identifier (icontains)."),
-    mods: str | None = Field(default=None, description="Modifications (icontains)."),
+    type: str | None = Field(default=None, description="Vehicle type / model, full or partial."),
+    comm_name: str | None = Field(default=None, description="Commercial name, full or partial."),
+    chassis: str | None = Field(default=None, description="Chassis identifier, full or partial."),
+    mods: str | None = Field(default=None, description="Modifications, full or partial."),
     category: str | None = Field(default=None, description="Vehicle category (M1, N2, L3, …)."),
     eco_class: str | None = Field(default=None, description="Ecological class — pass '5' or the name; auto-resolved to reference id."),
     wheel_formula: str | None = Field(default=None, description="Wheel formula (e.g. '4x2'); auto-resolved to reference id."),
@@ -509,9 +509,9 @@ async def search_sbkts(
     brand: str | None = Field(default=None, description="Brand."),
     type: str | None = Field(default=None, description="Type."),
     comm_name: str | None = Field(default=None, description="Commercial name."),
-    engine: str | None = Field(default=None, description="ICE engine model (icontains)."),
+    engine: str | None = Field(default=None, description="ICE engine model, full or partial."),
     year: int | None = Field(default=None, description="Manufacture year (YYYY)."),
-    motor: str | None = Field(default=None, description="Electric motor model (icontains)."),
+    motor: str | None = Field(default=None, description="Electric motor model, full or partial."),
     motor_power: int | None = Field(default=None, description="Motor power (kW)."),
     category: str | None = Field(default=None, description="Vehicle category."),
     eco_class: str | None = Field(default=None, description="Ecological class — '5' or name; auto-resolved to reference id."),
@@ -591,10 +591,9 @@ async def search_by_vin(
     """Aggregated search by VIN across all car-kinds (ОТТС/ОТШ/ЗОТТС/ЗОТШ/
     СБКТС/ЗОЕТС). Open for any active API key — no subscription required.
 
-    Returns substring matches via UNION across kind-tables sorted by
-    `issue_date DESC`. For exact full-VIN match within a single kind,
-    use the per-kind tool (search_otts/search_sbkts/…) — they autoroute
-    substring↔DAWG by VIN validity.
+    Returns documents whose VIN field contains the given fragment, newest
+    first. For exact full-VIN search within a single registry use the
+    per-kind tool (search_otts/search_sbkts/…) with its `vin` parameter.
     """
     if not (5 <= len(vin) <= 17):
         return f"Invalid VIN length: {len(vin)} chars (expected 5-17)."
@@ -619,12 +618,12 @@ async def fulltext_search(
 ) -> str:
     """Full-text search inside type-approval document bodies (PDF text).
 
-    Covers ОТТС / ОТШ / ЗОТТС / ЗОТШ — kinds where `Document.fulltext` index
-    is populated. СБКТС / ЗОЕТС / СУТ / cert / decl don't have fulltext
-    index and are not searchable here.
+    Covers ОТТС / ОТШ / ЗОТТС / ЗОТШ. Other document kinds (СБКТС / ЗОЕТС /
+    СУТ / cert / decl) are not covered by full-text search.
 
-    **Premium feature** — requires a paid MCP key with `use_fulltext` +
-    subscription on at least one type-approval kind.
+    **Premium feature** — requires a plan that includes full-text search
+    (see https://hpt.su/pricing/) with a subscription covering at least
+    one type-approval kind.
     """
     if kind and kind not in ("otts", "otch", "zotts", "zotch"):
         return f"Invalid kind={kind!r}. Allowed: otts, otch, zotts, zotch (or omit for all)."
@@ -669,17 +668,16 @@ async def download_document_file(
     ctx: Context,
     file_uid: str = Field(description="DocumentFile UID (from list_document_files)."),
 ) -> str:
-    """Issue a signed URL to download the document PDF from hpt.su.
+    """Issue a personal URL to download the document PDF from hpt.su.
 
-    Returns `{download_url, file_name, kind, document_id}`. The URL is
-    encrypted with the user_id behind the API key — opening it works only
-    if the user is signed in to hpt.su under the same account. The
-    `dl_counter` is decremented on the website at actual download time, not
-    here.
+    Returns `{download_url, file_name, kind, document_id}`. The link is
+    personal: opening it works only when signed in to hpt.su under the
+    same account that owns the API key. The download quota is charged at
+    actual download time, not when the link is issued.
 
     Requires an active subscription covering the document's kind or a
-    stand-alone DOC_PURCHASE. On the free tier returns 403 with an
-    upgrade prompt to https://hpt.su/pricing/.
+    one-time purchase of this document. On the free tier returns 403 with
+    an upgrade prompt to https://hpt.su/pricing/.
     """
     client = _get_client(ctx)
     try:
