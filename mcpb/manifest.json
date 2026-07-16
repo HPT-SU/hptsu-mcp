@@ -1,7 +1,7 @@
 {
   "manifest_version": "0.2",
   "name": "hpt-su",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "display_name": "hpt.su — Russian/EAEU vehicle compliance docs",
   "description": "Search the hpt.su registry of Russian/EAEU vehicle compliance documents (type approvals ОТТС/СБКТС/ОТШ, conformity certificates, declarations, СУТ type-approval notifications).",
   "long_description": "MCP server that connects any MCP-compatible AI assistant to https://hpt.su — an aggregated database of Russian Federation and Eurasian Economic Union vehicle compliance documents. Search vehicle type approvals (ОТТС, ОТШ), safety-of-design certificates (СБКТС), conformity certificates and declarations under TR CU / TR EAEU technical regulations, and type-approval notifications (СУТ). Requires a X-API-Key from a hpt.su account with an MCP_FREE or MCP_PAID scope.",

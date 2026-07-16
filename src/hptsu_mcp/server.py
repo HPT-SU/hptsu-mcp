@@ -524,6 +524,8 @@ async def search_sbkts(
     wheel_formula: str | None = Field(default=None, description="Wheel formula (e.g. '4x2'); auto-resolved to reference id."),
     axis_count: str | None = Field(default=None, description="Axle count (e.g. '2') or exact 'axes / wheels' (e.g. '2 / 4') — auto-resolved to reference id. A bare axle count may match several wheel configs; then candidates are returned to pick from."),
     issuer: str | None = Field(default=None, description="Testing lab name — auto-resolved to id (or pass numeric id). See list_test_labs."),
+    powertrain: str | None = Field(default=None, description="Powertrain type: 'ice' (combustion), 'hybrid', 'electric'."),
+    fuel: str | None = Field(default=None, description="Engine fuel type, one of: 'бензин', 'дизель', 'газ', 'электро', 'водород'."),
     date_from: str | None = Field(default=None, description="Issue date from (YYYY-MM-DD)."),
     date_to: str | None = Field(default=None, description="Issue date to (YYYY-MM-DD)."),
     page: int = Field(default=1, ge=1, description="1-based page index."),
@@ -536,6 +538,7 @@ async def search_sbkts(
         engine=engine, year=year, motor=motor, motor_power=motor_power,
         category=category, eco_class=eco_class,
         wheel_formula=wheel_formula, axis_count=axis_count, issuer=issuer,
+        powertrain=powertrain, fuel=fuel,
         date_from=date_from, date_to=date_to,
     )
 
@@ -557,6 +560,8 @@ async def search_zoets(
     wheel_formula: str | None = Field(default=None, description="Wheel formula (e.g. '4x2'); auto-resolved to reference id."),
     axis_count: str | None = Field(default=None, description="Axle count (e.g. '2') or exact 'axes / wheels' (e.g. '2 / 4') — auto-resolved to reference id. A bare axle count may match several wheel configs; then candidates are returned to pick from."),
     issuer: str | None = Field(default=None, description="Testing lab name — auto-resolved to id (or pass numeric id)."),
+    powertrain: str | None = Field(default=None, description="Powertrain type: 'ice' (combustion), 'hybrid', 'electric'."),
+    fuel: str | None = Field(default=None, description="Engine fuel type, one of: 'бензин', 'дизель', 'газ', 'электро', 'водород'."),
     date_from: str | None = Field(default=None, description="Issue date from (YYYY-MM-DD)."),
     date_to: str | None = Field(default=None, description="Issue date to (YYYY-MM-DD)."),
     page: int = Field(default=1, ge=1, description="1-based page index."),
@@ -569,6 +574,7 @@ async def search_zoets(
         engine=engine, year=year, motor=motor, motor_power=motor_power,
         category=category, eco_class=eco_class,
         wheel_formula=wheel_formula, axis_count=axis_count, issuer=issuer,
+        powertrain=powertrain, fuel=fuel,
         date_from=date_from, date_to=date_to,
     )
 
@@ -743,8 +749,7 @@ async def list_vehicle_models(
 @mcp.tool()
 async def list_test_labs(
     ctx: Context,
-    name: str | None = Field(default=None, description="Lab name substring."),
-    short_id: str | None = Field(default=None, description="Lab short identifier."),
+    name: str | None = Field(default=None, description="Lab name, full or partial."),
     page: int = Field(default=1, ge=1, description="1-based page index."),
     page_size: int = Field(default=20, ge=1, le=PAGE_SIZE_MAX, description="Rows per page (max 50)."),
 ) -> str:
@@ -752,7 +757,7 @@ async def list_test_labs(
     client = _get_client(ctx)
     try:
         return _format(await client.list_test_labs(
-            name=name, short_id=short_id, page=page, page_size=page_size,
+            name=name, page=page, page_size=page_size,
             token=_request_token(ctx),
         ))
     except HptSuApiError as exc:

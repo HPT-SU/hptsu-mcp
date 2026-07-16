@@ -4,14 +4,23 @@ All notable changes to `hptsu-mcp` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 the project adheres to [SemVer](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.0] — 2026-07-14
 
 ### Added
 
+- Новые фасеты `search_sbkts` / `search_zoets`: `powertrain`
+  (`ice`/`hybrid`/`electric`) и `fuel` (`бензин`/`дизель`/`газ`/`электро`/
+  `водород`) — поиск «все электромобили», «все дизельные» и т.п.
 - Проверка версии клиента: бэкенд hpt.su объявляет минимальную совместимую
   версию заголовком `X-HPTSU-MCP-Min-Version`; устаревший клиент пишет
   warning в лог и (в stdio-режиме) один раз предупреждает пользователя
   припиской к ответу ближайшего тула с инструкцией обновления.
+
+### Removed
+
+- **BREAKING**: `list_test_labs` больше не принимает `short_id` — параметр
+  удалён из API hpt.su (вызов с ним возвращал 400). Ищите лабораторию по
+  `name`.
 
 ### Changed
 
