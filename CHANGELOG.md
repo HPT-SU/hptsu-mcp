@@ -4,6 +4,17 @@ All notable changes to `hptsu-mcp` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 the project adheres to [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- `download_document_file`: теперь ВСЕГДА возвращает `document_page_url` —
+  страницу документа на hpt.su, где файл можно скачать вручную (в т.ч. на
+  бесплатном тарифе; раньше free получал 402). `download_url` — только на
+  тарифах с прямым скачиванием, иначе null + причина в `download_note`.
+  Требует бэкенд с изменением 2026-07-30; со старым бэкендом поведение
+  прежнее.
+
 ## [0.4.0] — 2026-07-14
 
 ### Added
