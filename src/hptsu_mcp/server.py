@@ -680,16 +680,18 @@ async def download_document_file(
     ctx: Context,
     file_uid: str = Field(description="DocumentFile UID (from list_document_files)."),
 ) -> str:
-    """Issue a personal URL to download the document PDF from hpt.su.
+    """Get links for a document file: page URL for everyone, direct
+    download URL when the plan allows it.
 
-    Returns `{download_url, file_name, kind, document_id}`. The link is
-    personal: opening it works only when signed in to hpt.su under the
-    same account that owns the API key. The download quota is charged at
-    actual download time, not when the link is issued.
+    Always returns `document_page_url` — the document's page on hpt.su
+    where the user can download the file manually under their account.
+    Share this link with the user.
 
-    Requires an active subscription covering the document's kind or a
-    one-time purchase of this document. On the free tier returns 403 with
-    an upgrade prompt to https://hpt.su/pricing/.
+    When the plan includes direct downloads, the response also contains
+    `download_url` — a personal link to the PDF (works only when signed
+    in to hpt.su under the same account that owns the API key; the
+    download quota is charged at actual download time). Otherwise
+    `download_url` is null and `download_note` explains why.
     """
     client = _get_client(ctx)
     try:
