@@ -688,10 +688,14 @@ async def download_document_file(
     Share this link with the user.
 
     When the plan includes direct downloads, the response also contains
-    `download_url` — a personal link to the PDF (works only when signed
-    in to hpt.su under the same account that owns the API key; the
-    download quota is charged at actual download time). Otherwise
-    `download_url` is null and `download_note` explains why.
+    `download_url` — a personal temporary link to the PDF. It can be
+    fetched programmatically: send a GET request with the same
+    `X-API-Key: <key>` header used for this API. In a browser it works
+    when signed in to hpt.su under the account that owns the key. The
+    link is bound to the key owner — it does not work with anyone
+    else's key or account. The download quota is charged at actual
+    download time. Otherwise `download_url` is null and `download_note`
+    explains why.
     """
     client = _get_client(ctx)
     try:

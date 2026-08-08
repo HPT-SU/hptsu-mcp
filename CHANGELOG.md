@@ -4,6 +4,17 @@ All notable changes to `hptsu-mcp` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 the project adheres to [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] — 2026-08-10
+
+### Changed
+
+- `download_document_file`: описание `download_url` — ссылку теперь можно
+  скачать программно GET-запросом с тем же заголовком `X-API-Key`
+  (бэкенд 2026-08-10 разрешил bearer-скачивание без браузерной сессии;
+  ссылка по-прежнему привязана к владельцу ключа — чужим ключом или из
+  чужого аккаунта не работает). Изменение только текстовое, логика клиента
+  не менялась.
+
 ## [0.4.1] — 2026-07-30
 
 ### Changed
