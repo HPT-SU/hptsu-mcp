@@ -2,4 +2,4 @@
 
 See https://hpt.su for the source registry.
 """
-__version__ = "0.4.2"
+__version__ = "0.4.3"

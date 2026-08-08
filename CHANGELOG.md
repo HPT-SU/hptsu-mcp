@@ -4,6 +4,16 @@ All notable changes to `hptsu-mcp` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 the project adheres to [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.3] — 2026-08-10
+
+### Security
+
+- Бамп зависимостей в lock (Docker-образ): `cryptography` 49.0.0 → 50.0.0
+  (Bleichenbacher oracle в PKCS#7 EnvelopedData — функциональность не
+  используется, бамп для чистоты сканов), `mcp` 1.28.0 → 1.29.0 (отсутствие
+  Host/Origin-валидации в WebSocket-транспорте — транспорт не используется,
+  у нас stdio и streamable-http). Кода изменения не касаются.
+
 ## [0.4.2] — 2026-08-10
 
 ### Changed
