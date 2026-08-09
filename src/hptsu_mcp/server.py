@@ -7,8 +7,9 @@ certificates, declarations, type-approval notifications СУТ and more).
 Authentication:
 
 * Free MCP scope key — issue at https://hpt.su/user/mcp/, 50 requests/day.
-* Paid (`scope=MCP_PAID`) — 10 000 requests/day, includes full-text search
-  and downloads.
+* Paid API tiers (`scope=API_TIER`, Lite/Standard/Pro at
+  https://hpt.su/pricing/#api-tiers) — 500–10 000 requests/day, include
+  full-text search and direct downloads.
 
 The server speaks Model Context Protocol over stdio by default — point any
 MCP-aware client (Claude Desktop, Cursor, Cline, Continue, Goose, Cherry,
