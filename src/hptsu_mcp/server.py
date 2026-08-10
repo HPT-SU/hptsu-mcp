@@ -74,6 +74,11 @@ mcp = FastMCP(
         "unlocks full-text search and file downloads."
     ),
     lifespan=_lifespan,
+    # Read-only proxy без состояния между запросами. Stateful (дефолт) копил
+    # сессию на каждого подключившегося в StreamableHTTPSessionManager и не
+    # чистил при обрыве → heap-утечка (за ~1.5д публичного трафика дополз до
+    # 96% от 512M). Stateless: каждый запрос независим, сессии не накапливаются.
+    stateless_http=True,
 )
 
 
