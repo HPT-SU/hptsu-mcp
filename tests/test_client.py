@@ -116,7 +116,33 @@ async def test_list_documents_passes_filters(settings: Settings) -> None:
         result = await client.list_documents(number="RU C-RU", page=2, page_size=50)
         assert result == {"count": 1, "results": [{"id": "x"}]}
         params = dict(route.calls.last.request.url.params)
-        assert params == {"number": "RU C-RU", "page": "2", "page_size": "50"}
+        # page/page_size транслируются в limit/offset (контракт бэкенда —
+        # DRF LimitOffsetPagination; page/page_size там игнорировались).
+        assert params == {"number": "RU C-RU", "limit": "50", "offset": "50"}
+
+
+@pytest.mark.asyncio
+async def test_pagination_first_page_no_offset(settings: Settings) -> None:
+    """page=1 → offset не шлём (дефолт 0), limit из page_size."""
+    async with HptSuClient(settings) as client, respx.mock(base_url=settings.base_url) as mock:
+        route = mock.get("/docs/").mock(
+            return_value=httpx.Response(200, json={}),
+        )
+        await client.list_documents(number="X", page=1, page_size=20)
+        params = dict(route.calls.last.request.url.params)
+        assert params == {"number": "X", "limit": "20"}
+
+
+@pytest.mark.asyncio
+async def test_pagination_page_without_size_uses_default(settings: Settings) -> None:
+    """page без page_size → offset от дефолтного размера страницы (20)."""
+    async with HptSuClient(settings) as client, respx.mock(base_url=settings.base_url) as mock:
+        route = mock.get("/docs/").mock(
+            return_value=httpx.Response(200, json={}),
+        )
+        await client.list_documents(number="X", page=3)
+        params = dict(route.calls.last.request.url.params)
+        assert params == {"number": "X", "offset": "40"}
 
 
 @pytest.mark.asyncio

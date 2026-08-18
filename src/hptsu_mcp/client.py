@@ -241,6 +241,23 @@ class HptSuClient:
 
     # ---------- raw plumbing ----------
 
+    @staticmethod
+    def _to_limit_offset(params: dict[str, Any]) -> dict[str, Any]:
+        """`page`/`page_size` → `limit`/`offset` (контракт LimitOffsetPagination).
+
+        Явно переданные `limit`/`offset` не перетираются (их нет в текущих
+        тулах, но метод не должен молча ломать прямые вызовы клиента).
+        """
+        page = params.pop('page', None)
+        size = params.pop('page_size', None)
+        if size is not None and 'limit' not in params:
+            params['limit'] = int(size)
+        if page is not None and 'offset' not in params:
+            page = int(page)
+            if page > 1:
+                params['offset'] = (page - 1) * int(size or 20)
+        return params
+
     def _note_min_version(self, resp: httpx.Response) -> None:
         """Сверить свою версию с минимальной, объявленной бэкендом.
 
@@ -302,6 +319,12 @@ class HptSuClient:
     async def _get(self, path: str, *, params: dict[str, Any] | None = None,
                    token: str | None = None) -> Any:
         clean = {k: v for k, v in (params or {}).items() if v is not None and v != ""}
+        # Тулы говорят page/page_size, а /api/v1/ пагинируется limit/offset
+        # (DRF LimitOffsetPagination): page/page_size там молча игнорировались
+        # и каждая «страница» возвращала первые 20 строк. Транслируем сами;
+        # бэк ≥H8 понимает и алиасы, но со старым бэком без трансляции
+        # листание не работает вовсе.
+        clean = self._to_limit_offset(clean)
         resp = await self._client.get(path, params=clean, headers=self._build_headers(token))
         self._note_min_version(resp)
         self._raise_for_status(resp)

@@ -4,6 +4,18 @@ All notable changes to `hptsu-mcp` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 the project adheres to [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.4] — 2026-08-18
+
+### Fixed
+
+- **Пагинация работала только для первой страницы**: тулы принимают
+  `page`/`page_size`, но бэкенд `/api/v1/` пагинируется `limit`/`offset`
+  (DRF LimitOffsetPagination) и молча игнорировал наши параметры — любой
+  `page` возвращал первые 20 строк. Клиент теперь транслирует
+  `page`/`page_size` → `limit`/`offset` (`offset = (page-1) × page_size`).
+  Глубина листания ограничена бэкендом: `offset ≤ 1000`, дальше — явный 400
+  с подсказкой сузить фильтр.
+
 ## [0.4.3] — 2026-08-10
 
 ### Security
