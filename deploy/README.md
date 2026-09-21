@@ -19,6 +19,16 @@
 
 **Сервисный ключ не нужен**: ключ юзера приходит per-request в заголовке `Authorization: Bearer <key>` или `X-API-Key: <key>` от его MCP-клиента (Claude/Cursor/Cline). Контейнер не хранит ничего.
 
+## OAuth для ChatGPT-коннектора (опционально)
+
+`HPTSU_RESOURCE_URL` (например `https://mcp.hpt.su/mcp`, для sk3d-зеркала — `https://mcp.sk3d.ru/mcp`) включает RFC9728/RFC8414 OAuth-discovery на `/mcp`, нужную ChatGPT Developer Mode/Connectors (у них нет ручного ввода client_id/URL — коннектор сам находит authorization server через 401-challenge). Подробности механизма и открытые вопросы — `docs/ai/plans/mcp_oauth_chatgpt.md` в репо hpt_su, CHANGELOG.md 0.5.0.
+
+**Существующим пользователям обновление не требуется**:
+
+- **X-API-Key stdio/hosted-клиенты** — поведение не меняется вообще, с включённым `HPTSU_RESOURCE_URL` или без него.
+- **Уже подключённые OAuth-клиенты** (Cursor/Smithery/Claude Desktop через `Authorization: Bearer`) — продолжают работать без переподключения.
+- Переменная нужна **только** для нового ChatGPT-подключения; без неё `/mcp` ведёт себя как раньше (никакого 401-challenge).
+
 ## Что НЕ нужно
 
 - Volume — сервис stateless.

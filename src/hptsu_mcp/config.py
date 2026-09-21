@@ -69,6 +69,33 @@ class Settings(BaseSettings):
         ),
     )
 
+    # ──── OAuth resource-server gate (streamable-http / sse only) ────────
+    # См. docs/ai/plans/mcp_oauth_chatgpt.md (hpt_su repo) — Ф1.
+    resource_url: str | None = Field(
+        default=None,
+        description=(
+            "Canonical resource identifier of this deployment, e.g. "
+            "`https://mcp.hpt.su/mcp` (or `https://mcp.sk3d.ru/mcp` for the "
+            "sk3d mirror — each hostname runs its own container/env, so this "
+            "is set per-deployment, not derived from the request Host). "
+            "Drives RFC9728 `/.well-known/oauth-protected-resource/mcp` "
+            "discovery and the 401 `WWW-Authenticate` challenge on `/mcp`. "
+            "Empty (default) disables the OAuth resource-server gate "
+            "entirely: `X-API-Key` keeps working as before, and a missing "
+            "Bearer stays a 200 JSON-RPC 'Authentication failed' response "
+            "instead of a transport 401 — useful for local dev/tests "
+            "without a public hostname."
+        ),
+    )
+    oauth_issuer_url: str = Field(
+        default="https://hpt.su",
+        description=(
+            "OAuth 2.0 Authorization Server issuer advertised in the "
+            "RFC9728 protected-resource metadata (`authorization_servers`). "
+            "Only used when `resource_url` is set."
+        ),
+    )
+
     # LOW#629: явный отказ от wildcard — `*` отключает защиту от DNS-rebinding
     # и позволяет любому веб-сайту через user-agent атаковать локальный MCP.
     @field_validator('allowed_hosts')

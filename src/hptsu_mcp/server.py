@@ -23,12 +23,16 @@ import json
 import logging
 import os
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Literal
 
+from mcp.server.auth.provider import AccessToken, TokenVerifier
+from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import Context, FastMCP
-from pydantic import Field
+from pydantic import AnyHttpUrl, Field
+from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse
+from starlette.types import Receive, Scope, Send
 
 from . import __version__
 from .client import HptSuApiError, HptSuClient, consume_update_notice
@@ -63,6 +67,105 @@ async def _lifespan(server: FastMCP) -> AsyncIterator[dict[str, Any]]:
         await client.close()
 
 
+# ──── OAuth resource-server gate (streamable-http / sse hosted mode) ──────
+#
+# См. docs/ai/plans/mcp_oauth_chatgpt.md (репо hpt_su), фаза 1. Задача этого
+# блока — закрыть два discovery-блокера для OAuth-коннекторов (ChatGPT и
+# т.п.), не трогая существующий X-API-Key путь:
+#
+#   (а) RFC9728 `/.well-known/oauth-protected-resource/mcp` с
+#       resource=<этот сервер>, authorization_servers=[hpt.su];
+#   (б) 401 + `WWW-Authenticate: Bearer resource_metadata="..."` на /mcp,
+#       если нет ни Bearer, ни X-API-Key (сейчас — 200 всегда).
+#
+# Используем штатный OAuth-RS механизм SDK (`AuthSettings` + `TokenVerifier`,
+# см. mcp.server.auth) вместо ручных well-known/401 хендлеров — MCP SDK 1.29
+# отдаёт (а) и (б) "из коробки", если сконфигурировать FastMCP как RS-only
+# (auth_server_provider не задаём — AS живёт на hpt.su, не здесь).
+#
+# DOT-токены (django-oauth-toolkit) непрозрачны для этого сервиса: чтобы
+# проверить их по-настоящему, нужна интроспекция RFC7662 (`/oauth/introspect/`
+# на hpt.su уже объявлена в AS-metadata), но она требует отдельного
+# client_credentials-клиента с scope `introspection`, которого сегодня нет —
+# это доработка AS (см. открытые вопросы плана), не делаем её здесь.
+# Вместо этого — "слепой" verifier: любой непустой Bearer считается
+# аутентифицированным на транспортном уровне, а реальную проверку
+# (валидность/владелец/scope) делает hpt.su при проксировании запроса через
+# `OAuthOrApiKeyAuthentication`. Невалидный/просроченный токен сегодня
+# по-прежнему оборачивается в JSON-RPC 200 с текстом «Authentication failed»
+# (см. `_err`), а не в транспортный 401 — конверсия upstream-401 в
+# транспортный 401+challenge не реализована (см. README/CHANGELOG TODO).
+_X_API_KEY_BYPASS_TOKEN = "hptsu-x-api-key-bypass"  # nosec: не секрет, просто маркер
+
+
+class _BlindBearerTokenVerifier(TokenVerifier):
+    """См. блок-комментарий выше. Принимает любой непустой Bearer."""
+
+    async def verify_token(self, token: str) -> AccessToken | None:
+        if not token:
+            return None
+        return AccessToken(
+            token=token,
+            client_id="x-api-key" if token == _X_API_KEY_BYPASS_TOKEN else "blind-oauth",
+            # Единственный scope в системе (см. OAUTH2_PROVIDER на hpt.su);
+            # required_scopes=["mcp"] ниже проверяет именно его.
+            scopes=["mcp"],
+            expires_at=None,
+        )
+
+
+class _XApiKeyBypassMiddleware:
+    """Пропускает `X-API-Key` мимо OAuth-гейта SDK.
+
+    `RequireAuthMiddleware` (mcp.server.auth) требует `Authorization: Bearer`
+    на любой запрос к /mcp, иначе 401 — это ломает существующих клиентов со
+    статичным `X-API-Key` (кабинетный ключ). В SDK нет ручки «пропустить по
+    другому заголовку», поэтому при наличии `X-API-Key` без `Authorization`
+    подставляем сентинел-Bearer, который `_BlindBearerTokenVerifier` считает
+    валидным без похода в сеть. `_request_token()` ниже всё равно читает
+    `X-API-Key` напрямую и приоритетно — сентинел никогда не долетает до
+    upstream.
+    """
+
+    def __init__(self, app: Any) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        headers: list[tuple[bytes, bytes]] = scope.get("headers") or []
+        has_api_key = any(k.lower() == b"x-api-key" for k, _ in headers)
+        has_authorization = any(k.lower() == b"authorization" for k, _ in headers)
+        if has_api_key and not has_authorization:
+            scope = dict(scope)
+            scope["headers"] = [
+                *headers,
+                (b"authorization", f"Bearer {_X_API_KEY_BYPASS_TOKEN}".encode()),
+            ]
+        await self.app(scope, receive, send)
+
+
+def _build_auth() -> tuple[AuthSettings | None, TokenVerifier | None]:
+    """RS-only OAuth конфигурация из `HPTSU_RESOURCE_URL` (см. config.py).
+
+    Пусто (дефолт, локальная разработка/тесты/stdio) → OAuth-гейт выключен
+    полностью, поведение не меняется относительно того, что было до Ф1.
+    """
+    settings = load_settings()
+    if not settings.resource_url:
+        return None, None
+    auth = AuthSettings(
+        issuer_url=AnyHttpUrl(settings.oauth_issuer_url),
+        resource_server_url=AnyHttpUrl(settings.resource_url),
+        required_scopes=["mcp"],
+    )
+    return auth, _BlindBearerTokenVerifier()
+
+
+_AUTH_SETTINGS, _TOKEN_VERIFIER = _build_auth()
+
+
 mcp = FastMCP(
     "hpt-su",
     instructions=(
@@ -79,6 +182,8 @@ mcp = FastMCP(
     # чистил при обрыве → heap-утечка (за ~1.5д публичного трафика дополз до
     # 96% от 512M). Stateless: каждый запрос независим, сессии не накапливаются.
     stateless_http=True,
+    auth=_AUTH_SETTINGS,
+    token_verifier=_TOKEN_VERIFIER,
 )
 
 
@@ -954,6 +1059,34 @@ def _configure_http_binding() -> None:
         ts.allowed_origins = list(set(list(ts.allowed_origins) + public_origins))
 
 
+def _build_http_app(kind: Literal["streamable-http", "sse"]) -> Starlette:
+    """Собрать Starlette-приложение транспорта + X-API-Key bypass поверх
+    OAuth-гейта SDK (см. `_XApiKeyBypassMiddleware`).
+
+    Не используем `mcp.run(transport=...)` напрямую — он не отдаёт наружу
+    собранное приложение, а middleware нужно добавить *до* первого запроса
+    (`Starlette.add_middleware` кидает `RuntimeError` после старта).
+    """
+    app = mcp.streamable_http_app() if kind == "streamable-http" else mcp.sse_app()
+    if mcp.settings.auth is not None:
+        app.add_middleware(_XApiKeyBypassMiddleware)
+    return app
+
+
+def _serve_http(app: Starlette) -> None:
+    import asyncio
+
+    import uvicorn
+
+    config = uvicorn.Config(
+        app,
+        host=mcp.settings.host,
+        port=mcp.settings.port,
+        log_level=mcp.settings.log_level.lower(),
+    )
+    asyncio.run(uvicorn.Server(config).serve())
+
+
 def main() -> None:
     logging.basicConfig(
         level=os.getenv("HPTSU_LOG_LEVEL", "INFO"),
@@ -967,10 +1100,10 @@ def main() -> None:
     transport = os.getenv("HPTSU_TRANSPORT", "stdio").lower()
     if transport in {"http", "streamable-http", "streamable_http"}:
         _configure_http_binding()
-        mcp.run(transport="streamable-http")
+        _serve_http(_build_http_app("streamable-http"))
     elif transport == "sse":
         _configure_http_binding()
-        mcp.run(transport="sse")
+        _serve_http(_build_http_app("sse"))
     else:
         mcp.run(transport="stdio")
 

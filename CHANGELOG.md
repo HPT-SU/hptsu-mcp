@@ -4,6 +4,54 @@ All notable changes to `hptsu-mcp` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 the project adheres to [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] — 2026-09-22
+
+### Added
+
+- **OAuth resource-server discovery for hosted mode** (`HPTSU_TRANSPORT=http`):
+  когда задан новый env `HPTSU_RESOURCE_URL` (например
+  `https://mcp.hpt.su/mcp`), сервер отдаёт RFC9728
+  `/.well-known/oauth-protected-resource/mcp` и отвечает 401 +
+  `WWW-Authenticate: Bearer resource_metadata="..."` на `/mcp` при
+  отсутствии и `Authorization: Bearer`, и `X-API-Key` — это раскрывает
+  discovery-цепочку OAuth-коннекторов, у которых нет ручного ввода
+  client_id/URL (ChatGPT Developer Mode/Connectors). Реализовано через
+  штатный OAuth-RS механизм MCP SDK (`AuthSettings`/`TokenVerifier`), без
+  ручных well-known/401-хендлеров.
+
+### Compatibility (обратная совместимость — действий не требуется)
+
+- **Существующие клиенты не затронуты.** `HPTSU_RESOURCE_URL` не задан по
+  умолчанию — если не установить его явно, поведение `/mcp` не меняется:
+  и `X-API-Key`, и `Authorization: Bearer` продолжают работать в точности
+  как раньше, запрос без креденшлов остаётся 200 (текстовая ошибка внутри
+  JSON-RPC-ответа), `/healthz`/`/readyz` не тронуты.
+- Даже когда `HPTSU_RESOURCE_URL` включён (планируется только на
+  hosted-инстансах mcp.hpt.su/mcp.sk3d.ru): `X-API-Key`-клиенты по-прежнему
+  проходят без OAuth-челленджа (внутренний bypass), уже подключённые
+  OAuth-клиенты (Cursor/Smithery/Claude Desktop) продолжают работать — их
+  Bearer-токен принимается транспортом «слепо» (валидность реально
+  проверяет hpt.su при проксировании запроса, как и раньше).
+- stdio-режим (локальные MCP-клиенты) не изменился вообще — вся эта логика
+  относится только к `streamable-http`/`sse`-транспортам.
+- `MCP_MIN_CLIENT_VERSION` (hpt_mcp, серверная сторона hpt.su) **не
+  менялся** — обновление stdio-клиентов не требуется.
+
+### Known limitations (см. docs/ai/plans/mcp_oauth_chatgpt.md, репо hpt_su)
+
+- Bearer-токен на транспорте проверяется «слепо» (любой непустой токен
+  принимается) — реальная валидация происходит на hpt.su при
+  проксировании запроса. Полная интроспекция (RFC7662) требует отдельного
+  client_credentials-клиента на AS — не сделано в этой итерации.
+- Просроченный/невалидный Bearer сегодня всё ещё возвращает 200 с текстом
+  «Authentication failed» внутри JSON-RPC-ответа конкретного tool-вызова
+  (не транспортный 401) — конверсия upstream-401 в транспортный
+  401+challenge не реализована.
+- `HPTSU_RESOURCE_URL` статичен на процесс — для `mcp.hpt.su` и
+  `mcp.sk3d.ru` (или другого домена) значение задаётся per-deployment
+  через env, не выводится динамически из заголовка `Host` одного и того
+  же процесса.
+
 ## [0.4.4] — 2026-08-18
 
 ### Fixed
