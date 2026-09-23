@@ -4,6 +4,31 @@ All notable changes to `hptsu-mcp` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 the project adheres to [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] — 2026-09-24
+
+### Changed
+
+- Описания инструментов приведены к фактическому контракту hpt.su API:
+  list-эндпоинты бэкенда отвечают `NO_FILTERS`, если не задан ни один
+  фильтр. `search_documents.number`, `list_brands.name`,
+  `list_test_labs.name`, `list_certification_bodies.name` — теперь
+  обязательные параметры; у многофильтровых поисков требование указано
+  в описании.
+- Тарифы в `instructions`, текстах ошибок, ресурсе `hptsu://about` и README:
+  платный доступ — API-тарифы Lite/Standard/Pro (500–10 000 запросов/день),
+  а не «Paid MCP 10 000/day».
+- `status` у `search_certificates`/`search_declarations` перечисляет коды
+  (ACTIVE, SUSPENDED, RESUMED, TERMINATED, CANCELLED, ARCHIVED, EXTENDED, UNKNOWN).
+- `search_documents`/`get_document`/`list_brands`/`download_document_file`:
+  описания уточнены (что возвращают, как связаны со следующими вызовами).
+- Ответы инструментов — компактный JSON (без отступов): меньше токенов в
+  контексте клиента.
+
+### Removed
+
+- Список инструментов из ресурса `hptsu://about` (дублировал реальный
+  список tools и устаревал).
+
 ## [0.5.0] — 2026-09-22
 
 ### Added

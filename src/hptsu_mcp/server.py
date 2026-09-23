@@ -172,9 +172,11 @@ mcp = FastMCP(
         "Search the hpt.su registry of Russian / EAEU vehicle compliance "
         "documents (https://hpt.su): type approvals (ОТТС/СБКТС/ОТШ), "
         "conformity certificates (ТР ТС/ТР ЕАЭС), declarations of conformity, "
-        "type-approval notifications СУТ. Read-only. Free tier (50 req/day) "
-        "available at https://hpt.su/user/mcp/. Paid tier (10 000 req/day) "
-        "unlocks full-text search and file downloads."
+        "type-approval notifications СУТ. Read-only. Free MCP key: 50 "
+        "requests/day, issued at https://hpt.su/user/mcp/. Paid API tiers "
+        "(Lite/Standard/Pro, 500–10 000 requests/day, "
+        "https://hpt.su/pricing/#api-tiers) add full-text search and direct "
+        "file downloads."
     ),
     lifespan=_lifespan,
     # Read-only proxy без состояния между запросами. Stateful (дефолт) копил
@@ -239,7 +241,7 @@ def _request_token(ctx: Context) -> str | None:
 
 
 def _format(result: Any) -> str:
-    text = json.dumps(result, ensure_ascii=False, indent=2)
+    text = json.dumps(result, ensure_ascii=False, separators=(",", ":"))
     # Одноразовое предупреждение об устаревшем клиенте (stdio-режим) —
     # см. client._note_min_version. None во всех остальных случаях.
     notice = consume_update_notice()
@@ -345,13 +347,13 @@ def _err(exc: HptSuApiError) -> str:
     # Fallback на status_code (legacy bridge для бэка до H5).
     if exc.status_code == 402:
         return (
-            "Payment required. Upgrade your MCP key to the paid tier at "
-            "https://hpt.su/pricing/ to unlock this tool."
+            "Payment required. This tool needs a paid API tier — see "
+            "https://hpt.su/pricing/#api-tiers."
         )
     if exc.status_code == 429:
         return (
-            "Rate limit reached. Free MCP tier is 50 requests/day — "
-            "upgrade at https://hpt.su/pricing/ for 10 000 req/day."
+            "Rate limit reached. The free MCP key allows 50 requests/day; "
+            "paid API tiers allow 500–10 000 — see https://hpt.su/pricing/#api-tiers."
         )
     if exc.status_code == 404:
         return "Not found."
@@ -366,11 +368,15 @@ def _err(exc: HptSuApiError) -> str:
 @mcp.tool()
 async def search_documents(
     ctx: Context,
-    number: str | None = Field(default=None, description="Document number, full or partial."),
+    number: str = Field(description="Document number, full or partial."),
     page: int = Field(default=1, ge=1, description="1-based page index."),
     page_size: int = Field(default=20, ge=1, le=PAGE_SIZE_MAX, description="Rows per page (max 50)."),
 ) -> str:
-    """Cross-registry search by document number across all hpt.su kinds."""
+    """Search documents of every registry kind by number (full or partial).
+
+    Use it when the registry kind is unknown. Each result carries `slug` and
+    `kind` — pass them to get_document or list_document_files.
+    """
     client = _get_client(ctx)
     token = _request_token(ctx)
     try:
@@ -389,7 +395,8 @@ async def get_document(
                     "Slug isn't globally unique between kinds, so kind is required.",
     ),
 ) -> str:
-    """Fetch a single Document by slug+kind."""
+    """Fetch one document's full record by `slug` + `kind` (both taken from a
+    search result)."""
     if kind not in REGISTRY_KINDS:
         return f"Invalid kind={kind!r}. Allowed: {sorted(REGISTRY_KINDS)}."
     client = _get_client(ctx)
@@ -408,12 +415,15 @@ async def search_certificates(
     manufacturer: str | None = Field(default=None, description="Manufacturer name, full or partial."),
     regulations: str | None = Field(default=None, description="Technical regulation code (e.g. 'ТР ТС 018/2011')."),
     product: str | None = Field(default=None, description="Product full name, full or partial."),
-    status: str | None = Field(default=None, description="Certificate status code."),
+    status: str | None = Field(default=None, description="Certificate status: ACTIVE, SUSPENDED, RESUMED, TERMINATED, CANCELLED, ARCHIVED, EXTENDED or UNKNOWN."),
     scheme: str | None = Field(default=None, description="Certification scheme — '1с'…'9с'."),
     page: int = Field(default=1, ge=1, description="1-based page index."),
     page_size: int = Field(default=20, ge=1, le=PAGE_SIZE_MAX, description="Rows per page (max 50)."),
 ) -> str:
-    """Search conformity certificates (ТР ТС / ТР ЕАЭС)."""
+    """Search conformity certificates (ТР ТС / ТР ЕАЭС).
+
+    Set at least one search filter — paging parameters alone return a NO_FILTERS error.
+    """
     client = _get_client(ctx)
     try:
         data = await client.list_certificates(
@@ -437,12 +447,15 @@ async def search_declarations(
     manufacturer: str | None = Field(default=None, description="Manufacturer name, full or partial."),
     regulations: str | None = Field(default=None, description="Technical regulation code (e.g. 'ТР ТС 018/2011')."),
     product: str | None = Field(default=None, description="Product full name, full or partial."),
-    status: str | None = Field(default=None, description="Declaration status code."),
+    status: str | None = Field(default=None, description="Declaration status: ACTIVE, SUSPENDED, RESUMED, TERMINATED, CANCELLED, ARCHIVED, EXTENDED or UNKNOWN."),
     scheme: str | None = Field(default=None, description="Declaration scheme — '1д'…'6д'."),
     page: int = Field(default=1, ge=1, description="1-based page index."),
     page_size: int = Field(default=20, ge=1, le=PAGE_SIZE_MAX, description="Rows per page (max 50)."),
 ) -> str:
-    """Search declarations of conformity (ТР ТС / ТР ЕАЭС)."""
+    """Search declarations of conformity (ТР ТС / ТР ЕАЭС).
+
+    Set at least one search filter — paging parameters alone return a NO_FILTERS error.
+    """
     client = _get_client(ctx)
     try:
         data = await client.list_declarations(
@@ -535,7 +548,10 @@ async def search_otts(
     page: int = Field(default=1, ge=1, description="1-based page index."),
     page_size: int = Field(default=20, ge=1, le=PAGE_SIZE_MAX, description="Rows per page (max 50)."),
 ) -> str:
-    """Search ОТТС (vehicle type approvals, ТР ТС 018/2011)."""
+    """Search ОТТС (vehicle type approvals, ТР ТС 018/2011).
+
+    Set at least one search filter — paging parameters alone return a NO_FILTERS error.
+    """
     return await _search_kind(
         ctx, "otts", page=page, page_size=page_size,
         number=number, vin=vin, brand=brand, type=type, comm_name=comm_name,
@@ -561,7 +577,10 @@ async def search_otch(
     page: int = Field(default=1, ge=1, description="1-based page index."),
     page_size: int = Field(default=20, ge=1, le=PAGE_SIZE_MAX, description="Rows per page (max 50)."),
 ) -> str:
-    """Search ОТШ (chassis type approvals)."""
+    """Search ОТШ (chassis type approvals).
+
+    Set at least one search filter — paging parameters alone return a NO_FILTERS error.
+    """
     return await _search_kind(
         ctx, "otch", page=page, page_size=page_size,
         number=number, vin=vin, brand=brand, type=type, comm_name=comm_name,
@@ -585,7 +604,10 @@ async def search_zotts(
     page: int = Field(default=1, ge=1, description="1-based page index."),
     page_size: int = Field(default=20, ge=1, le=PAGE_SIZE_MAX, description="Rows per page (max 50)."),
 ) -> str:
-    """Search ЗОТТС (vehicle conformity assessment conclusion)."""
+    """Search ЗОТТС (vehicle conformity assessment conclusion).
+
+    Set at least one search filter — paging parameters alone return a NO_FILTERS error.
+    """
     return await _search_kind(
         ctx, "zotts", page=page, page_size=page_size,
         number=number, vin=vin, brand=brand, type=type,
@@ -609,7 +631,10 @@ async def search_zotch(
     page: int = Field(default=1, ge=1, description="1-based page index."),
     page_size: int = Field(default=20, ge=1, le=PAGE_SIZE_MAX, description="Rows per page (max 50)."),
 ) -> str:
-    """Search ЗОТШ (chassis conformity assessment conclusion)."""
+    """Search ЗОТШ (chassis conformity assessment conclusion).
+
+    Set at least one search filter — paging parameters alone return a NO_FILTERS error.
+    """
     return await _search_kind(
         ctx, "zotch", page=page, page_size=page_size,
         number=number, vin=vin, brand=brand, type=type,
@@ -642,7 +667,10 @@ async def search_sbkts(
     page: int = Field(default=1, ge=1, description="1-based page index."),
     page_size: int = Field(default=20, ge=1, le=PAGE_SIZE_MAX, description="Rows per page (max 50)."),
 ) -> str:
-    """Search СБКТС (vehicle safety certificate)."""
+    """Search СБКТС (vehicle safety certificate).
+
+    Set at least one search filter — paging parameters alone return a NO_FILTERS error.
+    """
     return await _search_kind(
         ctx, "sbkts", page=page, page_size=page_size,
         number=number, vin=vin, brand=brand, type=type, comm_name=comm_name,
@@ -678,7 +706,10 @@ async def search_zoets(
     page: int = Field(default=1, ge=1, description="1-based page index."),
     page_size: int = Field(default=20, ge=1, le=PAGE_SIZE_MAX, description="Rows per page (max 50)."),
 ) -> str:
-    """Search ЗОЕТС (vehicle technical expertise conclusion)."""
+    """Search ЗОЕТС (vehicle technical expertise conclusion).
+
+    Set at least one search filter — paging parameters alone return a NO_FILTERS error.
+    """
     return await _search_kind(
         ctx, "zoets", page=page, page_size=page_size,
         number=number, vin=vin, brand=brand, type=type, comm_name=comm_name,
@@ -699,7 +730,10 @@ async def search_sout(
     page: int = Field(default=1, ge=1, description="1-based page index."),
     page_size: int = Field(default=20, ge=1, le=PAGE_SIZE_MAX, description="Rows per page (max 50)."),
 ) -> str:
-    """Search СУТ (vehicle type notification — small dataset, only basic fields)."""
+    """Search СУТ (vehicle type notification — small dataset, only basic fields).
+
+    Set at least one search filter — paging parameters alone return a NO_FILTERS error.
+    """
     return await _search_kind(
         ctx, "sout", page=page, page_size=page_size,
         number=number, brand=brand, type=type,
@@ -795,8 +829,8 @@ async def download_document_file(
     download URL when the plan allows it.
 
     Always returns `document_page_url` — the document's page on hpt.su
-    where the user can download the file manually under their account.
-    Share this link with the user.
+    where the user can download the file manually under their account —
+    it is the user-facing link.
 
     When the plan includes direct downloads, the response also contains
     `download_url` — a personal temporary link to the PDF. It can be
@@ -822,12 +856,15 @@ async def download_document_file(
 @mcp.tool()
 async def list_brands(
     ctx: Context,
-    name: str | None = Field(default=None, description="Brand name substring (e.g. 'KAMAZ')."),
+    name: str = Field(description="Brand name substring (e.g. 'KAMAZ')."),
     page: int = Field(default=1, ge=1, description="1-based page index."),
     page_size: int = Field(default=20, ge=1, le=PAGE_SIZE_MAX, description="Rows per page (max 50)."),
 ) -> str:
-    """Resolve a vehicle brand name to its canonical record (used to filter
-    type approvals)."""
+    """Look up vehicle brands in the reference book — canonical name and id.
+
+    Search tools take a brand name directly; use this to find the canonical
+    spelling, or the brand id for list_vehicle_models.
+    """
     client = _get_client(ctx)
     try:
         return _format(await client.list_brands(
@@ -844,7 +881,10 @@ async def list_vehicle_models(
     page: int = Field(default=1, ge=1, description="1-based page index."),
     page_size: int = Field(default=20, ge=1, le=PAGE_SIZE_MAX, description="Rows per page (max 50)."),
 ) -> str:
-    """Resolve a vehicle model name (within a brand) to canonical record."""
+    """Resolve a vehicle model name (within a brand) to canonical record.
+
+    Set `brand`, `name` or both — paging parameters alone return a NO_FILTERS error.
+    """
     client = _get_client(ctx)
     token = _request_token(ctx)
     try:
@@ -866,7 +906,7 @@ async def list_vehicle_models(
 @mcp.tool()
 async def list_test_labs(
     ctx: Context,
-    name: str | None = Field(default=None, description="Lab name, full or partial."),
+    name: str = Field(description="Lab name, full or partial."),
     page: int = Field(default=1, ge=1, description="1-based page index."),
     page_size: int = Field(default=20, ge=1, le=PAGE_SIZE_MAX, description="Rows per page (max 50)."),
 ) -> str:
@@ -884,7 +924,7 @@ async def list_test_labs(
 @mcp.tool()
 async def list_certification_bodies(
     ctx: Context,
-    name: str | None = Field(default=None, description="Body name substring."),
+    name: str = Field(description="Body name substring."),
     page: int = Field(default=1, ge=1, description="1-based page index."),
     page_size: int = Field(default=20, ge=1, le=PAGE_SIZE_MAX, description="Rows per page (max 50)."),
 ) -> str:
@@ -911,6 +951,8 @@ async def list_tnved_codes(
 
     Note: TN VED codes are linked **only** to certificates and declarations —
     not to vehicle type approvals or safety reports.
+
+    Set `prefix`, `query` or both — paging parameters alone return a NO_FILTERS error.
     """
     client = _get_client(ctx)
     try:
@@ -1014,20 +1056,14 @@ def about_registry() -> str:
     return (
         "hpt.su — registry of Russian and EAEU vehicle compliance documents.\n"
         "Free MCP tier: 50 req/day at https://hpt.su/user/mcp/.\n"
-        "Paid tier: 10 000 req/day + full-text + downloads, https://hpt.su/pricing/.\n\n"
+        "Paid API tiers (Lite/Standard/Pro): 500–10 000 req/day + full-text +\n"
+        "direct downloads, https://hpt.su/pricing/#api-tiers.\n\n"
         "Registries:\n"
         + "\n".join(f"  • {kind} — {title}" for kind, title in REGISTRY_KINDS.items())
         + "\n\nAPI base: https://hpt.su/api/v1/\n"
         "Auth: X-API-Key: <public_id>:<secret> (issued at /user/mcp/),\n"
         "      or OAuth2 Bearer (DCR via /.well-known/oauth-authorization-server).\n"
-        "Schema: https://hpt.su/api/v1/schema/\n\n"
-        "Tools by kind: search_certificates / search_declarations / search_otts /\n"
-        "  search_otch / search_zotts / search_zotch / search_sbkts / search_zoets /\n"
-        "  search_sout. Plus search_documents (cross-kind by number), search_by_vin\n"
-        "  (cross-kind VIN), fulltext_search (otts/otch/zotts/zotch, paid).\n"
-        "NSI lookups: list_brands / list_vehicle_models / list_test_labs /\n"
-        "  list_certification_bodies / list_tnved_codes.\n"
-        "Files: list_document_files (free) / download_document_file (paid).\n"
+        "Schema: https://hpt.su/api/v1/schema/\n"
     )
 
 
