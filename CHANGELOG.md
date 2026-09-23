@@ -4,6 +4,60 @@ All notable changes to `hptsu-mcp` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 the project adheres to [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] — 2026-09-24
+
+### Changed
+
+- **Tool errors are now real MCP errors** (`isError: true`), not text inside
+  a normal result. Upstream errors (Payment required / Rate limit /
+  Forbidden / Not found / Authentication failed / Invalid input /
+  NO_FILTERS / 5xx), invalid `kind`/VIN-length validation, and ambiguous
+  reference-lookup responses (`list_*` resolution) all raise
+  `mcp.server.fastmcp.exceptions.ToolError` now. Message text (including
+  upgrade links and ambiguity candidates) is unchanged — only how it's
+  surfaced to the client changed. Note: FastMCP itself prefixes the final
+  text with `Error executing tool <name>: ` — that's an SDK behaviour, not
+  ours.
+- **Invalid/expired/revoked Bearer tokens now get a transport 401**
+  (hosted mode, `HPTSU_RESOURCE_URL` set) instead of a 200 JSON-RPC
+  response with "Authentication failed" text. Implemented via a real
+  `TokenVerifier` (`HptSuTokenVerifier`) that calls
+  `GET {HPTSU_BASE_URL}/mcp/whoami/` on hpt.su. See "Compatibility" below
+  for what happens when hpt.su itself is unreachable.
+- **RFC 8707 resource-indicator check**: a Bearer token issued for a
+  different MCP resource (`aud` in the `whoami` response doesn't match
+  `HPTSU_RESOURCE_URL`) is now rejected (401), not silently accepted.
+- **`/.well-known/oauth-protected-resource/mcp` (RFC 9728)**:
+  `authorization_servers` is now `["https://hpt.su"]` — byte-for-byte equal
+  to the issuer this server advertises. Previously the SDK's default route
+  emitted `["https://hpt.su/"]` (pydantic's `AnyHttpUrl` appends a trailing
+  slash to a bare host), which fails strict RFC 8414/9728 issuer comparison
+  in some OAuth client implementations. `resource_metadata` in the 401
+  `WWW-Authenticate` challenge is unchanged.
+- `serverInfo.version` in the `initialize` response now reports the
+  `hptsu-mcp` package version instead of the underlying MCP SDK version.
+- The `hptsu-x-api-key-bypass` sentinel Bearer token (internal — used only
+  to route a static `X-API-Key` through the SDK's OAuth gate) is now
+  rejected if a client sends it directly, instead of being accepted as a
+  valid token.
+
+### Compatibility (действий не требуется)
+
+- `X-API-Key` clients: unaffected. The bypass path never calls
+  `/mcp/whoami/` and is unaffected by the RFC 8707 check.
+- Already-connected OAuth clients with a currently-valid token: unaffected.
+- If hpt.su's `/mcp/whoami/` is unreachable or errors (5xx, timeout,
+  connection error, malformed JSON) the gate **fails open**: the token is
+  accepted at the transport level exactly as before (real validation still
+  happens on hpt.su when the tool call is proxied) — a Django restart or
+  blip does not disconnect active OAuth sessions. A positive result is
+  cached 60s (capped by the token's `exp`), a negative (401) result 10s, a
+  fail-open result 5s — bounded in-process cache (~10k entries, oldest
+  evicted first), ≤20 concurrent `whoami` requests in flight, 2.5s timeout
+  per check.
+- stdio mode: unaffected — none of this applies outside `streamable-http`/
+  `sse` transports.
+
 ## [0.5.1] — 2026-09-24
 
 ### Changed

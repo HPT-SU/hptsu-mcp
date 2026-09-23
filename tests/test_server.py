@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 import respx
+from mcp.server.fastmcp.exceptions import ToolError
 
 from hptsu_mcp.client import HptSuApiError, HptSuClient
 from hptsu_mcp.config import Settings
@@ -171,6 +172,7 @@ async def test_search_kind_sbkts_issuer_via_test_labs() -> None:
 
 @pytest.mark.asyncio
 async def test_search_kind_ambiguous_issuer_skips_search() -> None:
+    """B4: неоднозначный резолв справочника — ToolError (isError=true), не обычный текст."""
     with respx.mock(base_url=_BASE, assert_all_called=False) as mock:
         mock.get("/nsi/certification-bodies/").mock(return_value=httpx.Response(
             200, json={"count": 2, "results": [
@@ -178,8 +180,8 @@ async def test_search_kind_ambiguous_issuer_skips_search() -> None:
         docs = mock.get("/docs/otts/").mock(return_value=httpx.Response(
             200, json={"count": 0, "results": []}))
         async with HptSuClient(_settings()) as client:
-            out = await _search_kind(_ctx(client), "otts", page=1, page_size=20, issuer="НАМИ")
-    assert "ambiguous" in out
+            with pytest.raises(ToolError, match="ambiguous"):
+                await _search_kind(_ctx(client), "otts", page=1, page_size=20, issuer="НАМИ")
     assert not docs.called
 
 
@@ -251,6 +253,7 @@ async def test_search_kind_axis_count_name_uses_name_param() -> None:
 
 @pytest.mark.asyncio
 async def test_search_kind_axis_count_ambiguous_returns_candidates() -> None:
+    """B4: кандидаты неоднозначного резолва остаются в тексте ToolError."""
     with respx.mock(base_url=_BASE, assert_all_called=False) as mock:
         mock.get("/nsi/axis-counts/").mock(return_value=httpx.Response(
             200, json={"count": 6, "results": [
@@ -258,7 +261,8 @@ async def test_search_kind_axis_count_ambiguous_returns_candidates() -> None:
         docs = mock.get("/docs/otts/").mock(return_value=httpx.Response(
             200, json={"count": 0, "results": []}))
         async with HptSuClient(_settings()) as client:
-            out = await _search_kind(_ctx(client), "otts", page=1, page_size=20, axis_count="2")
-    assert "ambiguous" in out
-    assert "2 / 4" in out
+            with pytest.raises(ToolError) as exc_info:
+                await _search_kind(_ctx(client), "otts", page=1, page_size=20, axis_count="2")
+    assert "ambiguous" in str(exc_info.value)
+    assert "2 / 4" in str(exc_info.value)
     assert not docs.called

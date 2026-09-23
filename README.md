@@ -94,21 +94,55 @@ Any MCP client that supports stdio transport works the same way — point it at 
 
 For hosted MCP gateways set `HPTSU_TRANSPORT=streamable-http` (or `sse`) and call the server over the network.
 
+## OAuth (hosted mode)
+
+The hosted instance at `https://mcp.hpt.su/mcp` acts as an OAuth 2.0
+**protected resource** (RFC 9728): it publishes
+`/.well-known/oauth-protected-resource/mcp` pointing at `https://hpt.su` as
+the authorization server, and challenges unauthenticated requests to `/mcp`
+with `401 WWW-Authenticate: Bearer resource_metadata="..."`. This lets
+clients that do OAuth discovery connect without a manually issued API key.
+
+Two credential styles both work against the hosted endpoint:
+
+- **`X-API-Key: <public_id>:<secret>`** — a static key from
+  [hpt.su/user/mcp/](https://hpt.su/user/mcp/). Works with any client that
+  lets you set a custom header (Cursor, Cline, Continue, local scripts, …).
+- **OAuth 2.0 Bearer** — obtained via the standard MCP OAuth flow
+  (discovery → dynamic client registration → authorization code + PKCE).
+  Supported by clients that implement MCP's OAuth discovery, including:
+  - **ChatGPT** (Developer Mode / Connectors);
+  - **Claude.ai / claude.com** (custom connectors);
+  - **VS Code** (MCP extension host);
+  - **Cursor**, via its `cursor://` deep-link callback;
+  - Local/loopback clients that redirect to `127.0.0.1`/`localhost` (the
+    typical desktop-app OAuth callback pattern).
+
+A Bearer token bound to a different MCP resource (RFC 8707) or that has
+expired/been revoked is rejected with a transport `401` — the client should
+refresh or re-run the OAuth flow, not treat it as a data response.
+
 ## Tools
 
 ### Search & retrieval
 
 | Tool | What it does | Tier |
 |------|-------------|------|
-| `search_documents` | Cross-registry search by document number (any kind). | Free |
-| `get_document` | Fetch a single Document by UUID. | Free |
-| `search_certificates` | Conformity certificates — filter by number, applicant, status, scheme, TN VED code. | Free |
-| `search_declarations` | Declarations of conformity. | Free |
-| `search_type_approvals` | Vehicle (ОТТС) or chassis (ОТШ) type approvals — filter by brand / model / year / applicant. | Free |
-| `search_safety_reports` | СБКТС / СУТ / ЗОЕТС / ЗОТШ / ЗОТТС feeds. | Free |
-| `search_by_vin` | Aggregated VIN search across ОТТС / СБКТС / ЗОЕТС / ЗОТТС. | Free |
-| `fulltext_search` | Full-text search inside PDF bodies. | **Paid** |
-| `download_document_file` | Issue a time-limited signed PDF download URL. | **Paid** |
+| `search_documents` | Cross-registry search by document number — use when the registry kind is unknown. | Free |
+| `get_document` | Fetch one document's full record by `slug` + `kind` (both taken from a search result). | Free |
+| `search_certificates` | Conformity certificates (ТР ТС / ТР ЕАЭС) — number, applicant, status, scheme, regulations, product. | Free |
+| `search_declarations` | Declarations of conformity (ТР ТС / ТР ЕАЭС). | Free |
+| `search_otts` | ОТТС — vehicle type approvals (ТР ТС 018/2011). | Free |
+| `search_otch` | ОТШ — chassis type approvals. | Free |
+| `search_zotts` | ЗОТТС — vehicle conformity assessment conclusions. | Free |
+| `search_zotch` | ЗОТШ — chassis conformity assessment conclusions. | Free |
+| `search_sbkts` | СБКТС — vehicle safety-of-design certificates. | Free |
+| `search_zoets` | ЗОЕТС — single-vehicle technical expertise conclusions. | Free |
+| `search_sout` | СУТ — type-approval notifications (small dataset, basic fields only). | Free |
+| `search_by_vin` | Aggregated VIN search across ОТТС / ОТШ / ЗОТТС / ЗОТШ / СБКТС / ЗОЕТС. | Free |
+| `fulltext_search` | Full-text search inside ОТТС / ОТШ / ЗОТТС / ЗОТШ PDF bodies. | **Paid** |
+| `list_document_files` | List the files attached to a document (returns `file_uid`s for download). | Free |
+| `download_document_file` | Get links for a document file — page URL is always returned; the signed direct-download URL needs a plan that includes it. | Free / **Paid** |
 
 ### Reference dictionaries
 

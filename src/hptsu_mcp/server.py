@@ -19,19 +19,29 @@ transport mode is provided via ``HPTSU_TRANSPORT=http`` for hosted setups
 """
 from __future__ import annotations
 
+import asyncio
+import contextvars
+import hashlib
 import json
 import logging
 import os
+import time
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator, Literal
+from typing import Any, AsyncIterator, Callable, Literal
+from urllib.parse import urlparse
 
+import httpx
 from mcp.server.auth.provider import AccessToken, TokenVerifier
+from mcp.server.auth.routes import build_resource_metadata_url, cors_middleware
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.fastmcp.exceptions import ToolError
+from mcp.shared.auth import ProtectedResourceMetadata
 from pydantic import AnyHttpUrl, Field
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse
+from starlette.routing import Route
 from starlette.types import Receive, Scope, Send
 
 from . import __version__
@@ -69,49 +79,222 @@ async def _lifespan(server: FastMCP) -> AsyncIterator[dict[str, Any]]:
 
 # ──── OAuth resource-server gate (streamable-http / sse hosted mode) ──────
 #
-# См. docs/ai/plans/mcp_oauth_chatgpt.md (репо hpt_su), фаза 1. Задача этого
-# блока — закрыть два discovery-блокера для OAuth-коннекторов (ChatGPT и
-# т.п.), не трогая существующий X-API-Key путь:
+# См. docs/ai/plans/mcp_oauth_chatgpt.md (репо hpt_su), фазы 1-2. Задача
+# этого блока — закрыть discovery- и валидационные блокеры для OAuth-
+# коннекторов (ChatGPT и т.п.), не трогая существующий X-API-Key путь:
 #
 #   (а) RFC9728 `/.well-known/oauth-protected-resource/mcp` с
-#       resource=<этот сервер>, authorization_servers=[hpt.su];
+#       resource=<этот сервер>, authorization_servers=[hpt.su] — байт-в-байт
+#       совпадающий со своим же issuer (см. `_protected_resource_metadata`,
+#       SDK-роут даёт "https://hpt.su/" с хвостовым слешем, ломая клиентов,
+#       сверяющих issuer буквально по RFC 8414/9728);
 #   (б) 401 + `WWW-Authenticate: Bearer resource_metadata="..."` на /mcp,
-#       если нет ни Bearer, ни X-API-Key (сейчас — 200 всегда).
+#       если нет ни Bearer, ни X-API-Key;
+#   (в) настоящая проверка Bearer-токена через `GET {base_url}/mcp/whoami/`
+#       на hpt.su (см. `HptSuTokenVerifier`) — невалидный/просроченный/
+#       отозванный токен теперь получает транспортный 401 (SDK сам шлёт
+#       WWW-Authenticate), а не 200 с текстом ошибки внутри JSON-RPC.
 #
 # Используем штатный OAuth-RS механизм SDK (`AuthSettings` + `TokenVerifier`,
-# см. mcp.server.auth) вместо ручных well-known/401 хендлеров — MCP SDK 1.29
-# отдаёт (а) и (б) "из коробки", если сконфигурировать FastMCP как RS-only
-# (auth_server_provider не задаём — AS живёт на hpt.su, не здесь).
+# см. mcp.server.auth) вместо ручных well-known/401 хендлеров для (б);
+# (а) переопределяем собственным роутом поверх того же места, см.
+# `_protected_resource_route` и `_build_http_app`.
 #
-# DOT-токены (django-oauth-toolkit) непрозрачны для этого сервиса: чтобы
-# проверить их по-настоящему, нужна интроспекция RFC7662 (`/oauth/introspect/`
-# на hpt.su уже объявлена в AS-metadata), но она требует отдельного
-# client_credentials-клиента с scope `introspection`, которого сегодня нет —
-# это доработка AS (см. открытые вопросы плана), не делаем её здесь.
-# Вместо этого — "слепой" verifier: любой непустой Bearer считается
-# аутентифицированным на транспортном уровне, а реальную проверку
-# (валидность/владелец/scope) делает hpt.su при проксировании запроса через
-# `OAuthOrApiKeyAuthentication`. Невалидный/просроченный токен сегодня
-# по-прежнему оборачивается в JSON-RPC 200 с текстом «Authentication failed»
-# (см. `_err`), а не в транспортный 401 — конверсия upstream-401 в
-# транспортный 401+challenge не реализована (см. README/CHANGELOG TODO).
+# DOT-токены (django-oauth-toolkit) непрозрачны для этого сервиса — полная
+# интроспекция RFC7662 не сделана; вместо неё бэк даёт лёгкий эндпоинт
+# `/mcp/whoami/`, который `HptSuTokenVerifier` дёргает по каждому новому
+# (некэшированному) Bearer-токену. При недоступности бэка (5xx/timeout/
+# connection-error/битый JSON) — fail-OPEN на "слепой" AccessToken: реальная
+# проверка всё равно происходит на hpt.su при проксировании самого запроса,
+# а рестарт/деградация Django не должны рвать все активные MCP-сессии.
 _X_API_KEY_BYPASS_TOKEN = "hptsu-x-api-key-bypass"  # nosec: не секрет, просто маркер
 
+# Взводится `_XApiKeyBypassMiddleware` на время обработки запроса, для
+# которого сентинел подставлен ей самой (см. её докстринг). `HptSuTokenVerifier`
+# принимает сентинел только пока этот флаг взведён — иначе клиент, приславший
+# сентинел сам (без реального X-API-Key), получил бы дармовой доступ.
+_SENTINEL_INJECTED: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "hptsu_sentinel_injected", default=False,
+)
 
-class _BlindBearerTokenVerifier(TokenVerifier):
-    """См. блок-комментарий выше. Принимает любой непустой Bearer."""
+_WHOAMI_PATH = "/mcp/whoami/"
+_WHOAMI_TIMEOUT = 2.5  # секунды
+_WHOAMI_CONCURRENCY = 20
+_CACHE_MAX_ENTRIES = 10_000
+_TTL_POSITIVE = 60.0  # секунды; но не дольше `exp` токена
+_TTL_NEGATIVE = 10.0
+_TTL_FAIL_OPEN = 5.0
+
+
+def _positive_cache_ttl(exp: int | None) -> float:
+    """TTL кэша для валидного токена — 60с, но не дольше его `exp`."""
+    if exp is None:
+        return _TTL_POSITIVE
+    return max(0.0, min(_TTL_POSITIVE, exp - time.time()))
+
+
+def _canonical_resource(url: str) -> str:
+    """Канонизировать resource-URL для сравнения `aud` с `HPTSU_RESOURCE_URL` (RFC 8707).
+
+    Схема и хост — в нижний регистр, дефолтный порт (`:443` для https,
+    `:80` для http) и хвостовой `/` убираются: `https://MCP.hpt.su:443/mcp/`
+    и `https://mcp.hpt.su/mcp` — один и тот же resource, а сверка строкой
+    "как есть" (без канонизации) ложно отклоняла бы валидный токен из-за
+    несущественной разницы в записи URL.
+    """
+    parsed = urlparse(url)
+    scheme = (parsed.scheme or "").lower()
+    host = (parsed.hostname or "").lower()
+    port = parsed.port
+    if port is not None and (
+        (scheme == "https" and port == 443) or (scheme == "http" and port == 80)
+    ):
+        port = None
+    netloc = host if port is None else f"{host}:{port}"
+    path = parsed.path.rstrip("/")
+    return f"{scheme}://{netloc}{path}"
+
+
+class HptSuTokenVerifier(TokenVerifier):
+    """Проверяет Bearer через `GET {base_url}/mcp/whoami/` на hpt.su.
+
+    Контракт бэкенда (hpt_mcp): 200 `{"active": true, "exp": <unix>,
+    "aud": "<resource>"|null, "scope": "mcp"}` или 401. См. блок-комментарий
+    выше про fail-open и кэш. `aud`, если задан, обязан совпадать (после
+    канонизации, см. `_canonical_resource`) с resource этого сервера
+    (`HPTSU_RESOURCE_URL`) — иначе токен выпущен для другого ресурса
+    (RFC 8707) и отклоняется.
+
+    Экземпляр — модульный синглтон (см. `_build_auth`), живёт весь процесс:
+    `self._client`/`self._cache` не закрываются и не чистятся явно на
+    остановке. Это ок для текущего деплоя (один uvicorn-процесс на
+    контейнер, см. Dockerfile/compose) — ОС освобождает сокеты при выходе
+    процесса. Если когда-нибудь перейти на `uvicorn --workers N>1`: важно,
+    каким механизмом создаются воркеры. `_TOKEN_VERIFIER` строится один раз
+    при импорте модуля (см. низ файла) — если воркеры создаются через
+    `fork()` уже после этого импорта (а не через повторный импорт в новом
+    процессе), унаследованный `httpx.AsyncClient` (с его event-loop-
+    привязанными транспортами/локами) не переживёт fork безопасно; в этом
+    случае verifier нужно будет строить лениво (per-worker), а не на
+    импорте.
+    """
+
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        clock: Callable[[], float] | None = None,
+        cache_max_entries: int = _CACHE_MAX_ENTRIES,
+    ) -> None:
+        self._resource = _canonical_resource(settings.resource_url) if settings.resource_url else None
+        self._clock = clock or time.monotonic
+        self._cache_max_entries = cache_max_entries
+        self._sem = asyncio.Semaphore(_WHOAMI_CONCURRENCY)
+        # sha256(token) → (AccessToken | None, valid_until). None = "невалиден"
+        # (негативный кэш), не отсутствие записи.
+        self._cache: dict[str, tuple[AccessToken | None, float]] = {}
+        self._client = httpx.AsyncClient(
+            base_url=settings.base_url.rstrip("/"),
+            timeout=_WHOAMI_TIMEOUT,
+            headers={
+                "Accept": "application/json",
+                # Тот же User-Agent, что у HptSuClient (см. client.py), плюс
+                # пометка — на бэке в логах/аналитике эти запросы отличимы
+                # от обычных API-вызовов от имени этого же MCP-сервера.
+                "User-Agent": f"{settings.user_agent} token-verifier",
+            },
+            limits=httpx.Limits(
+                max_keepalive_connections=20, max_connections=100, keepalive_expiry=30.0,
+            ),
+        )
+
+    async def aclose(self) -> None:
+        """Явно закрыть httpx-клиент — сегодня не вызывается (см. докстринг
+        класса про процессную модель), оставлено для будущего graceful-
+        shutdown хука или тестов.
+        """
+        await self._client.aclose()
+
+    def _cache_get(self, key: str) -> tuple[bool, AccessToken | None]:
+        hit = self._cache.get(key)
+        if hit is None:
+            return False, None
+        token, valid_until = hit
+        if valid_until < self._clock():
+            del self._cache[key]
+            return False, None
+        return True, token
+
+    def _cache_put(self, key: str, token: AccessToken | None, ttl: float) -> None:
+        if key not in self._cache and len(self._cache) >= self._cache_max_entries:
+            del self._cache[next(iter(self._cache))]  # вытесняем самый старый.
+        self._cache[key] = (token, self._clock() + ttl)
+
+    @staticmethod
+    def _blind(token: str, *, client_id: str) -> AccessToken:
+        return AccessToken(token=token, client_id=client_id, scopes=["mcp"], expires_at=None)
 
     async def verify_token(self, token: str) -> AccessToken | None:
         if not token:
             return None
-        return AccessToken(
-            token=token,
-            client_id="x-api-key" if token == _X_API_KEY_BYPASS_TOKEN else "blind-oauth",
-            # Единственный scope в системе (см. OAUTH2_PROVIDER на hpt.su);
-            # required_scopes=["mcp"] ниже проверяет именно его.
-            scopes=["mcp"],
-            expires_at=None,
+
+        # X-API-Key bypass-сентинел (см. `_XApiKeyBypassMiddleware`) — не
+        # ходит в сеть, не кэшируется, принимается только пока флаг взведён.
+        if token == _X_API_KEY_BYPASS_TOKEN:
+            if _SENTINEL_INJECTED.get():
+                return self._blind(token, client_id="x-api-key")
+            return None
+
+        cache_key = hashlib.sha256(token.encode()).hexdigest()
+        hit, cached = self._cache_get(cache_key)
+        if hit:
+            return cached
+
+        try:
+            async with self._sem:
+                resp = await self._client.get(
+                    _WHOAMI_PATH, headers={"Authorization": f"Bearer {token}"},
+                )
+        except httpx.HTTPError as exc:
+            log.warning("whoami check errored (%s) — failing open", exc)
+            blind = self._blind(token, client_id="blind-oauth")
+            self._cache_put(cache_key, blind, _TTL_FAIL_OPEN)
+            return blind
+
+        if resp.status_code == 401:
+            self._cache_put(cache_key, None, _TTL_NEGATIVE)
+            return None
+
+        if resp.status_code != 200:
+            log.warning("whoami unexpected status %s — failing open", resp.status_code)
+            blind = self._blind(token, client_id="blind-oauth")
+            self._cache_put(cache_key, blind, _TTL_FAIL_OPEN)
+            return blind
+
+        try:
+            data = resp.json()
+        except ValueError:
+            log.warning("whoami returned malformed JSON — failing open")
+            blind = self._blind(token, client_id="blind-oauth")
+            self._cache_put(cache_key, blind, _TTL_FAIL_OPEN)
+            return blind
+
+        if not isinstance(data, dict) or not data.get("active"):
+            self._cache_put(cache_key, None, _TTL_NEGATIVE)
+            return None
+
+        aud = data.get("aud")
+        if aud is not None and (self._resource is None or _canonical_resource(aud) != self._resource):
+            # RFC 8707 — токен выпущен для другого resource, не для нас.
+            self._cache_put(cache_key, None, _TTL_NEGATIVE)
+            return None
+
+        exp = data.get("exp")
+        access = AccessToken(
+            token=token, client_id="oauth", scopes=["mcp"], expires_at=exp, resource=aud,
         )
+        self._cache_put(cache_key, access, _positive_cache_ttl(exp))
+        return access
 
 
 class _XApiKeyBypassMiddleware:
@@ -121,10 +304,11 @@ class _XApiKeyBypassMiddleware:
     на любой запрос к /mcp, иначе 401 — это ломает существующих клиентов со
     статичным `X-API-Key` (кабинетный ключ). В SDK нет ручки «пропустить по
     другому заголовку», поэтому при наличии `X-API-Key` без `Authorization`
-    подставляем сентинел-Bearer, который `_BlindBearerTokenVerifier` считает
-    валидным без похода в сеть. `_request_token()` ниже всё равно читает
-    `X-API-Key` напрямую и приоритетно — сентинел никогда не долетает до
-    upstream.
+    подставляем сентинел-Bearer и взводим `_SENTINEL_INJECTED` на время
+    обработки запроса — так `HptSuTokenVerifier` отличает наш сентинел от
+    того же значения, присланного клиентом напрямую (клиентский вариант
+    отклоняется). `_request_token()` ниже всё равно читает `X-API-Key`
+    напрямую и приоритетно — сентинел никогда не долетает до upstream.
     """
 
     def __init__(self, app: Any) -> None:
@@ -143,7 +327,69 @@ class _XApiKeyBypassMiddleware:
                 *headers,
                 (b"authorization", f"Bearer {_X_API_KEY_BYPASS_TOKEN}".encode()),
             ]
+            reset_token = _SENTINEL_INJECTED.set(True)
+            try:
+                await self.app(scope, receive, send)
+            finally:
+                _SENTINEL_INJECTED.reset(reset_token)
+            return
         await self.app(scope, receive, send)
+
+
+def _protected_resource_metadata(settings: Settings) -> dict[str, Any]:
+    """RFC9728-метаданные — тот же состав полей, что строит SDK
+    (`create_protected_resource_routes`), но `authorization_servers`
+    подставляем строкой без хвостового слеша.
+
+    RFC 8414/9728 требуют байт-в-байт совпадение с issuer в AS-metadata;
+    pydantic `AnyHttpUrl` молча добавляет `/` к голому хосту, поэтому
+    `oauth_issuer_url="https://hpt.su"` через SDK превращался в
+    `"https://hpt.su/"` — клиенты, сверяющие issuer строкой (а не как URL),
+    не находят совпадения и обрывают discovery.
+    """
+    assert settings.resource_url, "resource_url must be set (caller-enforced, see _build_http_app)"
+    meta = ProtectedResourceMetadata(
+        resource=AnyHttpUrl(settings.resource_url),
+        authorization_servers=[AnyHttpUrl(settings.oauth_issuer_url)],
+        scopes_supported=["mcp"],
+    )
+    data = json.loads(meta.model_dump_json(exclude_none=True))
+    data["authorization_servers"] = [settings.oauth_issuer_url.rstrip("/")]
+    return data
+
+
+def _protected_resource_route(settings: Settings) -> Route:
+    """Собственный route на то же место, что и SDK-роут (см.
+    `create_protected_resource_routes` в mcp.server.auth.routes) — тот же
+    путь и та же CORS-обёртка (`cors_middleware`), но с исправленным
+    `authorization_servers` (см. `_protected_resource_metadata`).
+    """
+    assert settings.resource_url, "resource_url must be set (caller-enforced, see _build_http_app)"
+    metadata_url = build_resource_metadata_url(AnyHttpUrl(settings.resource_url))
+    well_known_path = urlparse(str(metadata_url)).path
+    content = _protected_resource_metadata(settings)
+
+    async def handle(_request: Request) -> JSONResponse:
+        return JSONResponse(content, headers={"Cache-Control": "public, max-age=3600"})
+
+    return Route(
+        well_known_path,
+        endpoint=cors_middleware(handle, ["GET", "OPTIONS"]),
+        methods=["GET", "OPTIONS"],
+    )
+
+
+def _install_protected_resource_route(app: Starlette, settings: Settings) -> None:
+    """Заменить SDK-роут protected-resource на `_protected_resource_route`.
+
+    FastMCP добавляет свой route до `_custom_starlette_routes` (см.
+    `streamable_http_app`/`sse_app` в mcp.server.fastmcp.server) — тот же
+    путь встретится дважды, если просто дописать свой в конец; поэтому
+    сначала убираем совпадающий по `path` SDK-роут.
+    """
+    route = _protected_resource_route(settings)
+    app.router.routes = [r for r in app.router.routes if getattr(r, "path", None) != route.path]
+    app.router.routes.append(route)
 
 
 def _build_auth() -> tuple[AuthSettings | None, TokenVerifier | None]:
@@ -160,7 +406,7 @@ def _build_auth() -> tuple[AuthSettings | None, TokenVerifier | None]:
         resource_server_url=AnyHttpUrl(settings.resource_url),
         required_scopes=["mcp"],
     )
-    return auth, _BlindBearerTokenVerifier()
+    return auth, HptSuTokenVerifier(settings)
 
 
 _AUTH_SETTINGS, _TOKEN_VERIFIER = _build_auth()
@@ -187,6 +433,13 @@ mcp = FastMCP(
     auth=_AUTH_SETTINGS,
     token_verifier=_TOKEN_VERIFIER,
 )
+
+# FastMCP не пробрасывает `version` в низкоуровневый `mcp.server.lowlevel.Server`
+# (нет такого параметра конструктора) — тот при пустом `self.version` берёт
+# версию SDK-пакета `mcp` (`importlib.metadata.version("mcp")`), и клиент видит
+# в ответе `initialize` не hptsu-mcp 0.x, а mcp-SDK 1.x. Ставим напрямую в то
+# же поле, которое читает `Server.create_initialization_options()`.
+mcp._mcp_server.version = __version__
 
 
 def _get_client(ctx: Context) -> HptSuClient:
@@ -382,7 +635,7 @@ async def search_documents(
     try:
         data = await client.list_documents(number=number, page=page, page_size=page_size, token=token)
     except HptSuApiError as exc:
-        return _err(exc)
+        raise ToolError(_err(exc)) from exc
     return _format(data)
 
 
@@ -398,12 +651,12 @@ async def get_document(
     """Fetch one document's full record by `slug` + `kind` (both taken from a
     search result)."""
     if kind not in REGISTRY_KINDS:
-        return f"Invalid kind={kind!r}. Allowed: {sorted(REGISTRY_KINDS)}."
+        raise ToolError(f"Invalid kind={kind!r}. Allowed: {sorted(REGISTRY_KINDS)}.")
     client = _get_client(ctx)
     try:
         return _format(await client.get_document(slug, kind, token=_request_token(ctx)))
     except HptSuApiError as exc:
-        return _err(exc)
+        raise ToolError(_err(exc)) from exc
 
 
 @mcp.tool()
@@ -434,7 +687,7 @@ async def search_certificates(
             token=_request_token(ctx),
         )
     except HptSuApiError as exc:
-        return _err(exc)
+        raise ToolError(_err(exc)) from exc
     return _format(data)
 
 
@@ -466,7 +719,7 @@ async def search_declarations(
             token=_request_token(ctx),
         )
     except HptSuApiError as exc:
-        return _err(exc)
+        raise ToolError(_err(exc)) from exc
     return _format(data)
 
 
@@ -484,7 +737,7 @@ async def _search_kind(ctx: Context, kind: str, *, page: int, page_size: int, **
                 client, _ISSUER_ENDPOINT[kind], issuer, token=token, label="issuer",
             )
             if msg:
-                return msg
+                raise ToolError(msg)
             kw["issuer"] = rid
 
         eco = kw.get("eco_class")
@@ -494,7 +747,7 @@ async def _search_kind(ctx: Context, kind: str, *, page: int, page_size: int, **
                 label="eco_class", numeric_is_id=False,
             )
             if msg:
-                return msg
+                raise ToolError(msg)
             kw["eco_class"] = rid
 
         wf = kw.get("wheel_formula")
@@ -504,7 +757,7 @@ async def _search_kind(ctx: Context, kind: str, *, page: int, page_size: int, **
                 label="wheel_formula", numeric_is_id=False,
             )
             if msg:
-                return msg
+                raise ToolError(msg)
             kw["wheel_formula"] = rid
 
         ax = kw.get("axis_count")
@@ -517,7 +770,7 @@ async def _search_kind(ctx: Context, kind: str, *, page: int, page_size: int, **
                 label="axis_count", param=ax_param, numeric_is_id=False,
             )
             if msg:
-                return msg
+                raise ToolError(msg)
             kw["axis_count"] = rid
 
         data = await client.list_by_kind(
@@ -526,7 +779,7 @@ async def _search_kind(ctx: Context, kind: str, *, page: int, page_size: int, **
             **{k: v for k, v in kw.items() if v is not None},
         )
     except HptSuApiError as exc:
-        return _err(exc)
+        raise ToolError(_err(exc)) from exc
     return _format(data)
 
 
@@ -753,12 +1006,12 @@ async def search_by_vin(
     per-kind tool (search_otts/search_sbkts/…) with its `vin` parameter.
     """
     if not (5 <= len(vin) <= 17):
-        return f"Invalid VIN length: {len(vin)} chars (expected 5-17)."
+        raise ToolError(f"Invalid VIN length: {len(vin)} chars (expected 5-17).")
     client = _get_client(ctx)
     try:
         return _format(await client.search_by_vin(vin, token=_request_token(ctx)))
     except HptSuApiError as exc:
-        return _err(exc)
+        raise ToolError(_err(exc)) from exc
 
 
 @mcp.tool()
@@ -783,13 +1036,13 @@ async def fulltext_search(
     one type-approval kind.
     """
     if kind and kind not in ("otts", "otch", "zotts", "zotch"):
-        return f"Invalid kind={kind!r}. Allowed: otts, otch, zotts, zotch (or omit for all)."
+        raise ToolError(f"Invalid kind={kind!r}. Allowed: otts, otch, zotts, zotch (or omit for all).")
     client = _get_client(ctx)
     try:
         data = await client.fulltext_search(query, kind=kind, page=page, page_size=page_size,
                                             token=_request_token(ctx))
     except HptSuApiError as exc:
-        return _err(exc)
+        raise ToolError(_err(exc)) from exc
     return _format(data)
 
 
@@ -811,13 +1064,13 @@ async def list_document_files(
     tool to enumerate them and pick the right one before download.
     """
     if kind not in REGISTRY_KINDS:
-        return f"Invalid kind={kind!r}. Allowed: {sorted(REGISTRY_KINDS)}."
+        raise ToolError(f"Invalid kind={kind!r}. Allowed: {sorted(REGISTRY_KINDS)}.")
     client = _get_client(ctx)
     try:
         return _format(await client.list_document_files(
             document_slug, kind, token=_request_token(ctx)))
     except HptSuApiError as exc:
-        return _err(exc)
+        raise ToolError(_err(exc)) from exc
 
 
 @mcp.tool()
@@ -847,7 +1100,7 @@ async def download_document_file(
         return _format(await client.download_document_file(
             file_uid, token=_request_token(ctx)))
     except HptSuApiError as exc:
-        return _err(exc)
+        raise ToolError(_err(exc)) from exc
 
 
 # ──── Reference / NSI dictionaries ──────────────────────────────────────
@@ -870,7 +1123,7 @@ async def list_brands(
         return _format(await client.list_brands(
             name=name, page=page, page_size=page_size, token=_request_token(ctx)))
     except HptSuApiError as exc:
-        return _err(exc)
+        raise ToolError(_err(exc)) from exc
 
 
 @mcp.tool()
@@ -894,13 +1147,13 @@ async def list_vehicle_models(
                 client, "/nsi/brands/", brand, token=token, label="brand",
             )
             if msg:
-                return msg
+                raise ToolError(msg)
             brand = rid
         return _format(await client.list_vehicle_models(
             brand=brand, name=name, page=page, page_size=page_size, token=token,
         ))
     except HptSuApiError as exc:
-        return _err(exc)
+        raise ToolError(_err(exc)) from exc
 
 
 @mcp.tool()
@@ -918,7 +1171,7 @@ async def list_test_labs(
             token=_request_token(ctx),
         ))
     except HptSuApiError as exc:
-        return _err(exc)
+        raise ToolError(_err(exc)) from exc
 
 
 @mcp.tool()
@@ -936,7 +1189,7 @@ async def list_certification_bodies(
             token=_request_token(ctx),
         ))
     except HptSuApiError as exc:
-        return _err(exc)
+        raise ToolError(_err(exc)) from exc
 
 
 @mcp.tool()
@@ -961,7 +1214,7 @@ async def list_tnved_codes(
             token=_request_token(ctx),
         ))
     except HptSuApiError as exc:
-        return _err(exc)
+        raise ToolError(_err(exc)) from exc
 
 
 @mcp.tool()
@@ -1097,7 +1350,9 @@ def _configure_http_binding() -> None:
 
 def _build_http_app(kind: Literal["streamable-http", "sse"]) -> Starlette:
     """Собрать Starlette-приложение транспорта + X-API-Key bypass поверх
-    OAuth-гейта SDK (см. `_XApiKeyBypassMiddleware`).
+    OAuth-гейта SDK (см. `_XApiKeyBypassMiddleware`), и, если задан
+    `HPTSU_RESOURCE_URL`, заменить SDK-роут protected-resource на
+    исправленный (см. `_install_protected_resource_route`, B1).
 
     Не используем `mcp.run(transport=...)` напрямую — он не отдаёт наружу
     собранное приложение, а middleware нужно добавить *до* первого запроса
@@ -1106,6 +1361,9 @@ def _build_http_app(kind: Literal["streamable-http", "sse"]) -> Starlette:
     app = mcp.streamable_http_app() if kind == "streamable-http" else mcp.sse_app()
     if mcp.settings.auth is not None:
         app.add_middleware(_XApiKeyBypassMiddleware)
+        settings = load_settings()
+        if settings.resource_url:
+            _install_protected_resource_route(app, settings)
     return app
 
 
