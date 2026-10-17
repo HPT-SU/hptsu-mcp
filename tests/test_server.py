@@ -14,6 +14,7 @@ from hptsu_mcp.server import (
     PAGE_SIZE_MAX,
     REGISTRY_KINDS,
     _err,
+    _prune_specs,
     _resolve_or_message,
     _search_kind,
     mcp,
@@ -65,6 +66,32 @@ def test_err_no_filters_without_list() -> None:
     msg = _err(exc)
     assert "Retry with a filter." in msg
     assert "Available filters" not in msg
+
+
+def test_prune_specs_drops_null_fields_and_empty_groups() -> None:
+    """`specs` (detail СБКТС/ЗОЕТС): null-поля и целиком пустые группы
+    выбрасываются, непустые значения остаются как есть."""
+    data = {
+        "slug": "doc-1",
+        "specs": {
+            "general": {"brand": "HONDA", "comm_name": None, "category": []},
+            "organizations": {"applicant": None, "maker": None, "factory": None},
+            "engine": {"name": None, "cylinders": None},
+        },
+    }
+    pruned = _prune_specs(data)
+    assert pruned["slug"] == "doc-1"
+    assert pruned["specs"] == {"general": {"brand": "HONDA"}}
+
+
+def test_prune_specs_all_empty_becomes_null() -> None:
+    data = {"slug": "doc-1", "specs": {"general": {"brand": None}}}
+    assert _prune_specs(data)["specs"] is None
+
+
+def test_prune_specs_ignores_data_without_specs_key() -> None:
+    data = {"slug": "doc-1", "number": "123"}
+    assert _prune_specs(data) == data
 
 
 @pytest.mark.asyncio

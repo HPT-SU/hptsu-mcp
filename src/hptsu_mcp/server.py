@@ -503,6 +503,29 @@ def _format(result: Any) -> str:
     return text
 
 
+def _prune_specs(data: Any) -> Any:
+    """`specs` (detail СБКТС/ЗОЕТС) — выбрасывает null и пустые группы перед
+    отдачей LLM. API возвращает стабильную схему с явными `null` (нужна для
+    OpenAPI), но для контекста модели это шум — см.
+    docs/ai/plans/sbkts_zoets_api_specs.md, п.8."""
+    if not isinstance(data, dict):
+        return data
+    specs = data.get("specs")
+    if not isinstance(specs, dict):
+        return data
+
+    pruned: dict[str, Any] = {}
+    for group_key, group_val in specs.items():
+        if isinstance(group_val, dict):
+            inner = {k: v for k, v in group_val.items() if v not in (None, [], {})}
+            if inner:
+                pruned[group_key] = inner
+        elif group_val not in (None, [], {}):
+            pruned[group_key] = group_val
+
+    return {**data, "specs": pruned or None}
+
+
 # kind → NSI-эндпоинт для резолва issuer (орган сертификации vs лаборатория).
 # otts/otch/zotts/zotch выдают органы (CERT_BODY); sbkts/zoets — лаборатории.
 _ISSUER_ENDPOINT: dict[str, str] = {
@@ -649,14 +672,16 @@ async def get_document(
     ),
 ) -> str:
     """Fetch one document's full record by `slug` + `kind` (both taken from a
-    search result)."""
+    search result). For sbkts/zoets the record includes `specs` — vehicle
+    characteristics (engine, dimensions, masses, organizations, etc.)."""
     if kind not in REGISTRY_KINDS:
         raise ToolError(f"Invalid kind={kind!r}. Allowed: {sorted(REGISTRY_KINDS)}.")
     client = _get_client(ctx)
     try:
-        return _format(await client.get_document(slug, kind, token=_request_token(ctx)))
+        data = await client.get_document(slug, kind, token=_request_token(ctx))
     except HptSuApiError as exc:
         raise ToolError(_err(exc)) from exc
+    return _format(_prune_specs(data))
 
 
 @mcp.tool()
