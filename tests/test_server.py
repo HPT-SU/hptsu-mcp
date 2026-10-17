@@ -84,6 +84,22 @@ def test_prune_specs_drops_null_fields_and_empty_groups() -> None:
     assert pruned["specs"] == {"general": {"brand": "HONDA"}}
 
 
+def test_prune_specs_handles_list_valued_fields() -> None:
+    """Раунд 3 решений владельца: `brand`/`comm_name`/`wheel_formula`/
+    `axis_count`/`equipment` стали списками справочных значений (не
+    скаляром) — пустой список и непустой список обрабатываются той же
+    generic-проверкой `v not in (None, [], {})`, без отдельного кода."""
+    data = {
+        "slug": "doc-1",
+        "specs": {
+            "general": {"brand": ["Honda"], "comm_name": [], "wheel_formula": None},
+            "equipment": [],
+        },
+    }
+    pruned = _prune_specs(data)
+    assert pruned["specs"] == {"general": {"brand": ["Honda"]}}
+
+
 def test_prune_specs_all_empty_becomes_null() -> None:
     data = {"slug": "doc-1", "specs": {"general": {"brand": None}}}
     assert _prune_specs(data)["specs"] is None
